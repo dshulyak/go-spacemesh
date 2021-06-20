@@ -15,14 +15,14 @@ const numOfClients = 100
 
 func TestMockHashOracle_Register(t *testing.T) {
 	oracle := newMockHashOracle(numOfClients)
-	oracle.Register(generateSigning(t).PublicKey().String())
-	oracle.Register(generateSigning(t).PublicKey().String())
+	oracle.Register(generateSigning().PublicKey().String())
+	oracle.Register(generateSigning().PublicKey().String())
 	assert.Equal(t, 2, len(oracle.clients))
 }
 
 func TestMockHashOracle_Unregister(t *testing.T) {
 	oracle := newMockHashOracle(numOfClients)
-	pub := generateSigning(t)
+	pub := generateSigning()
 	oracle.Register(pub.PublicKey().String())
 	assert.Equal(t, 1, len(oracle.clients))
 	oracle.Unregister(pub.PublicKey().String())
@@ -36,7 +36,7 @@ func TestMockHashOracle_Concurrency(t *testing.T) {
 
 	go func() {
 		for i := 0; i < 500; i++ {
-			pub := generateSigning(t)
+			pub := generateSigning()
 			oracle.Register(pub.PublicKey().String())
 			c <- pub
 		}
@@ -68,14 +68,14 @@ func genSig() []byte {
 func TestMockHashOracle_Role(t *testing.T) {
 	oracle := newMockHashOracle(numOfClients)
 	for i := 0; i < numOfClients; i++ {
-		pub := generateSigning(t)
+		pub := generateSigning()
 		oracle.Register(pub.PublicKey().String())
 	}
 
 	committeeSize := 20
 	counter := 0
 	for i := 0; i < numOfClients; i++ {
-		res, _ := oracle.eligible(context.TODO(), 0, 1, committeeSize, types.NodeID{Key: generateSigning(t).PublicKey().String()}, []byte(genSig()))
+		res, _ := oracle.eligible(context.TODO(), 0, 1, committeeSize, types.NodeID{Key: generateSigning().PublicKey().String()}, []byte(genSig()))
 		if res {
 			counter++
 		}
@@ -89,8 +89,8 @@ func TestMockHashOracle_Role(t *testing.T) {
 
 func TestMockHashOracle_calcThreshold(t *testing.T) {
 	oracle := newMockHashOracle(2)
-	oracle.Register(generateSigning(t).PublicKey().String())
-	oracle.Register(generateSigning(t).PublicKey().String())
+	oracle.Register(generateSigning().PublicKey().String())
+	oracle.Register(generateSigning().PublicKey().String())
 	assert.Equal(t, uint32(math.MaxUint32/2), oracle.calcThreshold(1))
 	assert.Equal(t, uint32(math.MaxUint32), oracle.calcThreshold(2))
 }

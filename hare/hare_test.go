@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sort"
-	"sync"
 	"testing"
 	"time"
 )
@@ -47,7 +46,7 @@ type mockConsensusProcess struct {
 	set  *Set
 }
 
-func (mcp *mockConsensusProcess) Start(ctx context.Context) error {
+func (mcp *mockConsensusProcess) Start(context.Context) error {
 	if mcp.term != nil {
 		<-mcp.term
 	}
@@ -71,7 +70,7 @@ func (mip *mockIDProvider) GetIdentity(edID string) (types.NodeID, error) {
 	return types.NodeID{Key: edID, VRFPublicKey: []byte{}}, mip.err
 }
 
-func newMockConsensusProcess(cfg config.Config, instanceID instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, outputChan chan TerminationOutput) *mockConsensusProcess {
+func newMockConsensusProcess(instanceID instanceID, s *Set, outputChan chan TerminationOutput) *mockConsensusProcess {
 	mcp := new(mockConsensusProcess)
 	mcp.Closer = NewCloser()
 	mcp.id = instanceID
@@ -80,8 +79,8 @@ func newMockConsensusProcess(cfg config.Config, instanceID instanceID, s *Set, o
 	return mcp
 }
 
-func createHare(n1 p2p.Service, logger log.Log) *Hare {
-	return New(cfg, n1, signing2.NewEdSigner(), types.NodeID{}, validateBlocks, (&mockSyncer{true}).IsSynced, new(orphanMock), eligibility.New(), 10, &mockIDProvider{}, NewMockStateQuerier(), make(chan types.LayerID), logger)
+func createHare(n1 p2p.Service, clock *mockClock, logger log.Log) *Hare {
+	return New(cfg, n1, signing2.NewEdSigner(), types.NodeID{}, validateBlocks, (&mockSyncer{true}).IsSynced, new(orphanMock), eligibility.New(), 10, &mockIDProvider{}, NewMockStateQuerier(), clock, logger)
 }
 
 var _ Consensus = (*mockConsensusProcess)(nil)
@@ -90,7 +89,7 @@ func TestNew(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 
 	if h == nil {
 		t.Fatal()
@@ -101,14 +100,14 @@ func TestHare_Start(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 
 	h.broker.Start(context.TODO()) // todo: fix that hack. this will cause h.Start to return err
 
 	/*err := h.Start()
 	require.Error(t, err)*/
 
-	h2 := createHare(n1, log.NewDefault(t.Name()))
+	h2 := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 	require.NoError(t, h2.Start(context.TODO()))
 }
 
@@ -117,7 +116,7 @@ func TestHare_GetResult(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 
 	res, err := h.GetResult(types.LayerID(0))
 	r.Equal(errNoResult, err)
@@ -134,6 +133,7 @@ func TestHare_GetResult(t *testing.T) {
 }
 
 func TestHare_GetResult2(t *testing.T) {
+	types.SetLayersPerEpoch(4)
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
@@ -142,27 +142,27 @@ func TestHare_GetResult2(t *testing.T) {
 		return []types.BlockID{value1}
 	}
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	clock := newMockClock()
+	h := createHare(n1, clock, log.NewDefault(t.Name()))
 	h.msh = om
 
-	h.networkDelta = 0
-
-	h.factory = func(cfg config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, outputChan chan TerminationOutput) Consensus {
-		return newMockConsensusProcess(cfg, instanceId, s, oracle, signing, p2p, outputChan)
+	h.factory = func(cfg config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, clock RoundClock, outputChan chan TerminationOutput) Consensus {
+		return newMockConsensusProcess(instanceId, s, outputChan)
 	}
 
-	h.Start(context.TODO())
+	err := h.Start(context.TODO())
+	require.NoError(t, err)
 
 	for i := 1; i <= h.bufferSize; i++ {
-		h.beginLayer <- types.LayerID(i)
+		clock.advanceLayer()
 		time.Sleep(15 * time.Millisecond)
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	_, err := h.GetResult(types.LayerID(h.bufferSize))
+	_, err = h.GetResult(types.LayerID(h.bufferSize))
 	require.NoError(t, err)
 
-	h.beginLayer <- types.LayerID(h.bufferSize + 1)
+	clock.advanceLayer()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -174,7 +174,7 @@ func TestHare_collectOutputCheckValidation(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 
 	mockid := instanceID1
 	set := NewSetFromValues(value1)
@@ -198,7 +198,7 @@ func TestHare_collectOutput(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 
 	mockid := instanceID1
 	set := NewSetFromValues(value1)
@@ -219,7 +219,7 @@ func TestHare_collectOutput2(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 	h.bufferSize = 1
 	h.lastLayer = 0
 	mockid := instanceID0
@@ -249,7 +249,7 @@ func TestHare_OutputCollectionLoop(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 	h.Start(context.TODO())
 	mo := mockReport{8, NewEmptySet(0), true}
 	h.broker.Register(context.TODO(), mo.ID())
@@ -269,8 +269,7 @@ func TestHare_onTick(t *testing.T) {
 
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
-
-	layerTicker := make(chan types.LayerID)
+	clock := newMockClock()
 
 	oracle := newMockHashOracle(numOfClients)
 	signing := signing2.NewEdSigner()
@@ -281,35 +280,28 @@ func TestHare_onTick(t *testing.T) {
 		return blockset
 	}
 
-	h := New(cfg, n1, signing, types.NodeID{}, validateBlocks, (&mockSyncer{true}).IsSynced, om, oracle, 10, &mockIDProvider{}, NewMockStateQuerier(), layerTicker, log.NewDefault("Hare"))
-	h.networkDelta = 0
+	myCfg := cfg
+	myCfg.WakeupDelta = 0
+	h := New(myCfg, n1, signing, types.NodeID{}, validateBlocks, (&mockSyncer{true}).IsSynced, om, oracle, 10, &mockIDProvider{}, NewMockStateQuerier(), clock, log.NewDefault("Hare"))
 	h.bufferSize = 1
 
 	createdChan := make(chan struct{})
 
 	var nmcp *mockConsensusProcess
-	h.factory = func(cfg config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, outputChan chan TerminationOutput) Consensus {
-		nmcp = newMockConsensusProcess(cfg, instanceId, s, oracle, signing, p2p, outputChan)
+	h.factory = func(cfg config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, clock RoundClock, outputChan chan TerminationOutput) Consensus {
+		nmcp = newMockConsensusProcess(instanceId, s, outputChan)
 		createdChan <- struct{}{}
 		return nmcp
 	}
 	h.Start(context.TODO())
 
-	var wg sync.WaitGroup
+	clock.advanceLayer()
+	<-createdChan
+	<-nmcp.CloseChannel()
 
-	wg.Add(2)
-	go func() {
-		wg.Done()
-		layerTicker <- types.GetEffectiveGenesis() + 1
-		<-createdChan
-		<-nmcp.CloseChannel()
-		wg.Done()
-	}()
-
-	//collect output one more time
-	wg.Wait()
-	time.Sleep(100 * time.Millisecond)
-	res2, err := h.GetResult(types.LayerID(types.GetEffectiveGenesis() + 1))
+	// collect output one more time
+	time.Sleep(time.Millisecond)
+	res2, err := h.GetResult(types.GetEffectiveGenesis() + 1)
 	require.NoError(t, err)
 
 	SortBlockIDs(res2)
@@ -317,17 +309,11 @@ func TestHare_onTick(t *testing.T) {
 
 	require.Equal(t, blockset, res2)
 
-	wg.Add(2)
-	go func() {
-		wg.Done()
-		layerTicker <- types.GetEffectiveGenesis() + 2
-		h.Close()
-		wg.Done()
-	}()
+	clock.advanceLayer()
+	h.Close()
 
-	//collect output one more time
-	wg.Wait()
-	res, err := h.GetResult(types.LayerID(types.GetEffectiveGenesis() + 2))
+	// collect output one more time
+	res, err := h.GetResult(types.GetEffectiveGenesis() + 2)
 	require.Equal(t, errNoResult, err)
 	require.Equal(t, []types.BlockID(nil), res)
 }
@@ -349,7 +335,7 @@ func TestHare_outputBuffer(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 	lasti := types.LayerID(0)
 
 	for i := types.LayerID(0); i < types.LayerID(h.bufferSize); i++ {
@@ -379,7 +365,7 @@ func TestHare_IsTooLate(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 
 	for i := types.LayerID(0); i < types.LayerID(h.bufferSize*2); i++ {
 		mockid := instanceID(i)
@@ -403,7 +389,7 @@ func TestHare_oldestInBuffer(t *testing.T) {
 	sim := service.NewSimulator()
 	n1 := sim.NewNode()
 
-	h := createHare(n1, log.NewDefault(t.Name()))
+	h := createHare(n1, newMockClock(), log.NewDefault(t.Name()))
 	lasti := types.LayerID(0)
 
 	for i := types.LayerID(0); i < types.LayerID(h.bufferSize); i++ {

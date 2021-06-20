@@ -44,7 +44,7 @@ func TestPreRoundTracker_OnPreRound(t *testing.T) {
 	s := NewEmptySet(lowDefaultSize)
 	s.Add(value1)
 	s.Add(value2)
-	verifier := generateSigning(t)
+	verifier := generateSigning()
 
 	m1 := BuildPreRoundMsg(verifier, s)
 	tracker := newPreRoundTracker(lowThresh10, lowThresh10, log.AppLog)
@@ -79,7 +79,7 @@ func TestPreRoundTracker_CanProveValueAndSet(t *testing.T) {
 
 	for i := 0; i < lowThresh10; i++ {
 		assert.False(t, tracker.CanProveSet(s))
-		m1 := BuildPreRoundMsg(generateSigning(t), s)
+		m1 := BuildPreRoundMsg(generateSigning(), s)
 		tracker.OnPreRound(context.TODO(), m1)
 	}
 
@@ -92,9 +92,9 @@ func TestPreRoundTracker_UpdateSet(t *testing.T) {
 	tracker := newPreRoundTracker(2, 2, log.AppLog)
 	s1 := NewSetFromValues(value1, value2, value3)
 	s2 := NewSetFromValues(value1, value2, value4)
-	prMsg1 := BuildPreRoundMsg(generateSigning(t), s1)
+	prMsg1 := BuildPreRoundMsg(generateSigning(), s1)
 	tracker.OnPreRound(context.TODO(), prMsg1)
-	prMsg2 := BuildPreRoundMsg(generateSigning(t), s2)
+	prMsg2 := BuildPreRoundMsg(generateSigning(), s2)
 	tracker.OnPreRound(context.TODO(), prMsg2)
 	assert.True(t, tracker.CanProveValue(value1))
 	assert.True(t, tracker.CanProveValue(value2))
@@ -105,7 +105,7 @@ func TestPreRoundTracker_UpdateSet(t *testing.T) {
 func TestPreRoundTracker_OnPreRound2(t *testing.T) {
 	tracker := newPreRoundTracker(2, 2, log.AppLog)
 	s1 := NewSetFromValues(value1)
-	verifier := generateSigning(t)
+	verifier := generateSigning()
 	prMsg1 := BuildPreRoundMsg(verifier, s1)
 	tracker.OnPreRound(context.TODO(), prMsg1)
 	assert.Equal(t, 1, len(tracker.preRound))
@@ -117,9 +117,9 @@ func TestPreRoundTracker_OnPreRound2(t *testing.T) {
 func TestPreRoundTracker_FilterSet(t *testing.T) {
 	tracker := newPreRoundTracker(2, 2, log.AppLog)
 	s1 := NewSetFromValues(value1, value2)
-	prMsg1 := BuildPreRoundMsg(generateSigning(t), s1)
+	prMsg1 := BuildPreRoundMsg(generateSigning(), s1)
 	tracker.OnPreRound(context.TODO(), prMsg1)
-	prMsg2 := BuildPreRoundMsg(generateSigning(t), s1)
+	prMsg2 := BuildPreRoundMsg(generateSigning(), s1)
 	tracker.OnPreRound(context.TODO(), prMsg2)
 	set := NewSetFromValues(value1, value2, value3)
 	tracker.FilterSet(set)

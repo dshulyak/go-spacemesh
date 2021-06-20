@@ -3,7 +3,6 @@ package hare
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/hare/config"
 	"github.com/spacemeshos/go-spacemesh/log"
@@ -15,7 +14,8 @@ import (
 // LayerBuffer is the number of layer results we keep at a given time.
 const LayerBuffer = 20
 
-type consensusFactory func(cfg config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, terminationReport chan TerminationOutput) Consensus
+type consensusFactory func(cfg config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer,
+	p2p NetworkService, clock RoundClock, terminationReport chan TerminationOutput) Consensus
 
 // Consensus represents an item that acts like a consensus process.
 type Consensus interface {
@@ -42,6 +42,20 @@ type layers interface {
 // checks if the collected output is valid
 type outputValidationFunc func(blocks []types.BlockID) bool
 
+// RoundClock provides timers that allow waiting for Hare wakeup and the end of each Hare round.
+type RoundClock interface {
+	AwaitWakeup() <-chan struct{}
+	AwaitEndOfRound(round int32) <-chan struct{}
+}
+
+// LayerClock provides a timer for the start of a given layer, as well as the current layer and allows converting a
+// layer number to a clock time.
+type LayerClock interface {
+	LayerToTime(id types.LayerID) time.Time
+	AwaitLayer(layerID types.LayerID) chan struct{}
+	GetCurrentLayer() types.LayerID
+}
+
 // Hare is the orchestrator that starts new consensus processes and collects their output.
 type Hare struct {
 	Closer
@@ -49,7 +63,9 @@ type Hare struct {
 	config config.Config
 
 	network    NetworkService
-	beginLayer chan types.LayerID
+	layerClock LayerClock
+
+	newRoundClock func(LayerID types.LayerID) RoundClock
 
 	broker *Broker
 
@@ -57,8 +73,6 @@ type Hare struct {
 
 	msh     layers
 	rolacle Rolacle
-
-	networkDelta time.Duration
 
 	layerLock sync.RWMutex
 	lastLayer types.LayerID
@@ -80,9 +94,9 @@ type Hare struct {
 
 // New returns a new Hare struct.
 func New(conf config.Config, p2p NetworkService, sign Signer, nid types.NodeID, validate outputValidationFunc,
-	syncState syncStateFunc, obp layers, rolacle Rolacle,
-	layersPerEpoch uint16, idProvider identityProvider, stateQ StateQuerier,
-	beginLayer chan types.LayerID, logger log.Log) *Hare {
+	syncState syncStateFunc, obp layers, rolacle Rolacle, layersPerEpoch uint16, idProvider identityProvider,
+	stateQ StateQuerier, layerClock LayerClock, logger log.Log) *Hare {
+
 	h := new(Hare)
 
 	h.Closer = NewCloser()
@@ -92,7 +106,17 @@ func New(conf config.Config, p2p NetworkService, sign Signer, nid types.NodeID, 
 	h.config = conf
 
 	h.network = p2p
-	h.beginLayer = beginLayer
+	h.layerClock = layerClock
+	h.newRoundClock = func(layerID types.LayerID) RoundClock {
+		layerTime := layerClock.LayerToTime(layerID)
+		wakeupDelta := time.Duration(conf.WakeupDelta) * time.Second
+		roundDuration := time.Duration(h.config.RoundDuration) * time.Second
+		h.With().Info("creating hare round clock", layerID,
+			log.String("layer_time", layerTime.String()),
+			log.Duration("wakeup_delta", wakeupDelta),
+			log.Duration("round_duration", roundDuration))
+		return NewSimpleRoundClock(layerTime, wakeupDelta, roundDuration)
+	}
 
 	ev := newEligibilityValidator(rolacle, layersPerEpoch, idProvider, conf.N, conf.ExpectedLeaders, logger)
 	h.broker = newBroker(p2p, ev, stateQ, syncState, layersPerEpoch, conf.LimitConcurrent, h.Closer, logger)
@@ -102,7 +126,6 @@ func New(conf config.Config, p2p NetworkService, sign Signer, nid types.NodeID, 
 	h.msh = obp
 	h.rolacle = rolacle
 
-	h.networkDelta = time.Duration(conf.WakeupDelta) * time.Second
 	// todo: this should be loaded from global config
 	h.bufferSize = LayerBuffer // XXX: must be at least the size of `hdist`
 
@@ -111,8 +134,8 @@ func New(conf config.Config, p2p NetworkService, sign Signer, nid types.NodeID, 
 	h.outputChan = make(chan TerminationOutput, h.bufferSize)
 	h.outputs = make(map[types.LayerID][]types.BlockID, h.bufferSize) //  we keep results about LayerBuffer past layers
 
-	h.factory = func(conf config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, terminationReport chan TerminationOutput) Consensus {
-		return newConsensusProcess(conf, instanceId, s, oracle, stateQ, layersPerEpoch, signing, nid, p2p, terminationReport, ev, logger)
+	h.factory = func(conf config.Config, instanceId instanceID, s *Set, oracle Rolacle, signing Signer, p2p NetworkService, clock RoundClock, terminationReport chan TerminationOutput) Consensus {
+		return newConsensusProcess(conf, instanceId, s, oracle, stateQ, layersPerEpoch, signing, nid, p2p, terminationReport, ev, clock, logger)
 	}
 
 	h.validate = validate
@@ -229,11 +252,11 @@ func (h *Hare) onTick(ctx context.Context, id types.LayerID) (err error) {
 	}()
 
 	logger.With().Debug("hare got tick, sleeping",
-		log.String("delta", fmt.Sprint(h.networkDelta)))
+		log.Int("delta", h.config.WakeupDelta))
 
-	ti := time.NewTimer(h.networkDelta)
+	clock := h.newRoundClock(id)
 	select {
-	case <-ti.C:
+	case <-clock.AwaitWakeup():
 		break // keep going
 	case <-h.CloseChannel():
 		// closed while waiting the delta
@@ -271,7 +294,7 @@ func (h *Hare) onTick(ctx context.Context, id types.LayerID) (err error) {
 		logger.With().Error("could not register consensus process on broker", log.Err(err))
 		return
 	}
-	cp := h.factory(h.config, instID, set, h.rolacle, h.sign, h.network, h.outputChan)
+	cp := h.factory(h.config, instID, set, h.rolacle, h.sign, h.network, clock, h.outputChan)
 	cp.SetInbox(c)
 	if err = cp.Start(ctx); err != nil {
 		logger.With().Error("could not start consensus process", log.Err(err))
@@ -281,7 +304,7 @@ func (h *Hare) onTick(ctx context.Context, id types.LayerID) (err error) {
 	logger.With().Info("number of consensus processes (after +1)",
 		log.Int32("count", atomic.AddInt32(&h.totalCPs, 1)))
 	// TODO: fix metrics
-	//metrics.TotalConsensusProcesses.With("layer", strconv.FormatUint(uint64(id), 10)).Add(1)
+	// metrics.TotalConsensusProcesses.With("layer", strconv.FormatUint(uint64(id), 10)).Add(1)
 	return
 }
 
@@ -319,7 +342,7 @@ func (h *Hare) outputCollectionLoop(ctx context.Context) {
 			h.WithContext(ctx).With().Info("number of consensus processes (after -1)",
 				log.Int32("count", atomic.AddInt32(&h.totalCPs, -1)))
 			// TODO: fix metrics
-			//metrics.TotalConsensusProcesses.With("layer", strconv.FormatUint(uint64(out.ID()), 10)).Add(-1)
+			// metrics.TotalConsensusProcesses.With("layer", strconv.FormatUint(uint64(out.ID()), 10)).Add(-1)
 		case <-h.CloseChannel():
 			return
 		}
@@ -328,10 +351,18 @@ func (h *Hare) outputCollectionLoop(ctx context.Context) {
 
 // listens to new layers.
 func (h *Hare) tickLoop(ctx context.Context) {
-	for {
+	for layer := h.layerClock.GetCurrentLayer(); ; layer++ {
 		select {
-		case layer := <-h.beginLayer:
-			go h.onTick(ctx, layer)
+		case <-h.layerClock.AwaitLayer(layer):
+			if h.layerClock.LayerToTime(layer).Sub(time.Now()) > (time.Duration(h.config.WakeupDelta) * time.Second) {
+				h.With().Warning("missed hare window, skipping layer", layer)
+				continue
+			}
+			go func(l types.LayerID) {
+				if err := h.onTick(ctx, l); err != nil {
+					h.With().Error("failed to handle tick", log.Err(err))
+				}
+			}(layer)
 		case <-h.CloseChannel():
 			return
 		}

@@ -26,22 +26,12 @@ func newTestHareWrapper(count int) *TestHareWrapper {
 	return w
 }
 
-func (w *TestHareWrapper) Tick(layer types.LayerID) {
-	for i := 0; i < len(w.lCh); i++ {
-		log.Debug("tick layer %v for instance %v", layer, i)
-		w.lCh[i] <- layer
-	}
-}
-
 func (w *TestHareWrapper) LayerTicker(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	j := types.GetEffectiveGenesis() + 1
-	last := j + types.LayerID(w.totalCP)
-
-	for ; j < last; j++ {
-		w.Tick(j)
+	for j := 0; j < w.totalCP; j++ {
+		w.clock.advanceLayer()
 		select {
 		case <-w.termination.CloseChannel():
 			return
@@ -84,12 +74,12 @@ func (h *testHare) LayerBlockIds(layer types.LayerID) ([]types.BlockID, error) {
 	return h.layers(layer, h)
 }
 
-func createTestHare(tcfg config.Config, layersCh chan types.LayerID, p2p NetworkService, rolacle Rolacle, name string, bp layers) *Hare {
+func createTestHare(tcfg config.Config, clock *mockClock, p2p NetworkService, rolacle Rolacle, name string, bp layers) *Hare {
 	ed := signing.NewEdSigner()
 	pub := ed.PublicKey()
 	nodeID := types.NodeID{Key: pub.String(), VRFPublicKey: pub.Bytes()}
 	hare := New(tcfg, p2p, ed, nodeID, validateBlock, isSynced, bp, rolacle, 10, &mockIdentityP{nid: nodeID},
-		&MockStateQuerier{true, nil}, layersCh, log.NewDefault(name+"_"+ed.PublicKey().ShortString()))
+		&MockStateQuerier{true, nil}, clock, log.NewDefault(name+"_"+ed.PublicKey().ShortString()))
 	return hare
 }
 
@@ -109,9 +99,8 @@ func runNodesFor(t *testing.T, nodes, leaders, maxLayers, limitIterations, concu
 	for i := 0; i < nodes; i++ {
 		s := sim.NewNode()
 		mp2p := &p2pManipulator{nd: s, stalledLayer: 1, err: errors.New("fake err")}
-		w.lCh = append(w.lCh, make(chan types.LayerID, 1))
 		h := &testHare{nil, oracle, bp, validate, i}
-		h.Hare = createTestHare(cfg, w.lCh[i], mp2p, h, t.Name(), h)
+		h.Hare = createTestHare(cfg, w.clock, mp2p, h, t.Name(), h)
 		w.hare = append(w.hare, h.Hare)
 		e := h.Start(context.TODO())
 		r.NoError(e)
@@ -127,7 +116,7 @@ func Test_HarePreRoundEmptySet(t *testing.T) {
 	m := [layers][nodes]int{}
 
 	w := runNodesFor(t, nodes, 2, layers, 2, 5,
-		func(layer types.LayerID, round int32, commite int, id types.NodeID, blocks []byte, hare *testHare) (uint16, error) {
+		func(layer types.LayerID, round int32, committee int, id types.NodeID, blocks []byte, hare *testHare) (uint16, error) {
 			if round/4 > 1 {
 				t.Fatal("out of round limit")
 			}
@@ -147,7 +136,7 @@ func Test_HarePreRoundEmptySet(t *testing.T) {
 	for x := range m {
 		for y := range m[x] {
 			if m[x][y] != 1 {
-				t.Errorf("at layer %v node %v has not emty set in result (%v)", x, y, m[x][y])
+				t.Errorf("at layer %v node %v has not empty set in result (%v)", x, y, m[x][y])
 			}
 		}
 	}
@@ -184,7 +173,7 @@ func Test_HareNoEnoughStatuses(t *testing.T) {
 	for x := range m {
 		for y := range m[x] {
 			if m[x][y] != 1 {
-				t.Errorf("at layer %v node %v has not emty set in result (%v)", x, y, m[x][y])
+				t.Errorf("at layer %v node %v has not empty set in result (%v)", x, y, m[x][y])
 			}
 		}
 	}
@@ -220,7 +209,7 @@ func Test_HareNoEnoughLeaders(t *testing.T) {
 	for x := range m {
 		for y := range m[x] {
 			if m[x][y] != 1 {
-				t.Errorf("at layer %v node %v has not emty set in result (%v)", x, y, m[x][y])
+				t.Errorf("at layer %v node %v has not empty set in result (%v)", x, y, m[x][y])
 			}
 		}
 	}
@@ -256,7 +245,7 @@ func Test_HareNoEnoughCommits(t *testing.T) {
 	for x := range m {
 		for y := range m[x] {
 			if m[x][y] != 1 {
-				t.Errorf("at layer %v node %v has not emty set in result (%v)", x, y, m[x][y])
+				t.Errorf("at layer %v node %v has not empty set in result (%v)", x, y, m[x][y])
 			}
 		}
 	}
@@ -292,7 +281,7 @@ func Test_HareNoEnoughNotifies(t *testing.T) {
 	for x := range m {
 		for y := range m[x] {
 			if m[x][y] != 1 {
-				t.Errorf("at layer %v node %v has not emty set in result (%v)", x, y, m[x][y])
+				t.Errorf("at layer %v node %v has not empty set in result (%v)", x, y, m[x][y])
 			}
 		}
 	}
@@ -325,7 +314,7 @@ func Test_HareComplete(t *testing.T) {
 	for x := range m {
 		for y := range m[x] {
 			if m[x][y] != 1 {
-				t.Errorf("at layer %v node %v has emty set in result", x, y)
+				t.Errorf("at layer %v node %v has empty set in result", x, y)
 			}
 		}
 	}

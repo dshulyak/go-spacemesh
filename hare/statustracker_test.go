@@ -32,7 +32,7 @@ func TestStatusTracker_RecordStatus(t *testing.T) {
 	assert.False(t, tracker.IsSVPReady())
 
 	for i := 0; i < lowThresh10; i++ {
-		tracker.RecordStatus(context.TODO(), BuildPreRoundMsg(generateSigning(t), s))
+		tracker.RecordStatus(context.TODO(), BuildPreRoundMsg(generateSigning(), s))
 		assert.False(t, tracker.IsSVPReady())
 	}
 
@@ -45,11 +45,11 @@ func TestStatusTracker_BuildUnionSet(t *testing.T) {
 
 	s := NewEmptySet(lowDefaultSize)
 	s.Add(value1)
-	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(t), s))
+	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(), s))
 	s.Add(value2)
-	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(t), s))
+	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(), s))
 	s.Add(value3)
-	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(t), s))
+	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(), s))
 
 	g := tracker.buildUnionSet(defaultSetSize)
 	assert.True(t, s.Equals(g))
@@ -59,7 +59,7 @@ func TestStatusTracker_IsSVPReady(t *testing.T) {
 	tracker := newStatusTracker(1, 1)
 	assert.False(t, tracker.IsSVPReady())
 	s := NewSetFromValues(value1)
-	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(t), s))
+	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(), s))
 	tracker.AnalyzeStatuses(validate)
 	assert.True(t, tracker.IsSVPReady())
 }
@@ -67,8 +67,8 @@ func TestStatusTracker_IsSVPReady(t *testing.T) {
 func TestStatusTracker_BuildSVP(t *testing.T) {
 	tracker := newStatusTracker(2, 1)
 	s := NewSetFromValues(value1)
-	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(t), s))
-	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(t), s))
+	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(), s))
+	tracker.RecordStatus(context.TODO(), BuildStatusMsg(generateSigning(), s))
 	tracker.AnalyzeStatuses(validate)
 	svp := tracker.BuildSVP()
 	assert.Equal(t, 2, len(svp.Messages))
@@ -78,8 +78,8 @@ func TestStatusTracker_ProposalSetTypeA(t *testing.T) {
 	tracker := newStatusTracker(2, 1)
 	s1 := NewSetFromValues(value1)
 	s2 := NewSetFromValues(value1, value2)
-	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(t), s1, -1))
-	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(t), s2, -1))
+	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(), s1, -1))
+	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(), s2, -1))
 	proposedSet := tracker.ProposalSet(2)
 	assert.NotNil(t, proposedSet)
 	assert.True(t, proposedSet.Equals(s1.Union(s2)))
@@ -89,8 +89,8 @@ func TestStatusTracker_ProposalSetTypeB(t *testing.T) {
 	tracker := newStatusTracker(2, 1)
 	s1 := NewSetFromValues(value1, value3)
 	s2 := NewSetFromValues(value1, value2)
-	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(t), s1, 0))
-	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(t), s2, 2))
+	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(), s1, 0))
+	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(), s2, 2))
 	tracker.AnalyzeStatuses(validate)
 	proposedSet := tracker.ProposalSet(2)
 	assert.NotNil(t, proposedSet)
@@ -101,9 +101,9 @@ func TestStatusTracker_AnalyzeStatuses(t *testing.T) {
 	tracker := newStatusTracker(2, 1)
 	s1 := NewSetFromValues(value1, value3)
 	s2 := NewSetFromValues(value1, value2)
-	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(t), s1, 2))
-	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(t), s2, 1))
-	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(t), s2, 2))
+	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(), s1, 2))
+	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(), s2, 1))
+	tracker.RecordStatus(context.TODO(), buildStatusMsg(generateSigning(), s2, 2))
 	tracker.AnalyzeStatuses(validate)
 	assert.Equal(t, 3, int(tracker.count))
 }

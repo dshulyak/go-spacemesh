@@ -22,7 +22,7 @@ func BuildProposalMsg(signing Signer, s *Set) *Msg {
 
 func TestProposalTracker_OnProposalConflict(t *testing.T) {
 	s := NewSetFromValues(value1, value2)
-	verifier := generateSigning(t)
+	verifier := generateSigning()
 
 	m1 := BuildProposalMsg(verifier, s)
 	tracker := newProposalTracker(log.NewDefault(verifier.PublicKey().String()))
@@ -40,14 +40,14 @@ func TestProposalTracker_IsConflicting(t *testing.T) {
 	tracker := newProposalTracker(log.NewDefault("ProposalTracker"))
 
 	for i := 0; i < lowThresh10; i++ {
-		tracker.OnProposal(context.TODO(), BuildProposalMsg(generateSigning(t), s))
+		tracker.OnProposal(context.TODO(), BuildProposalMsg(generateSigning(), s))
 		assert.False(t, tracker.IsConflicting())
 	}
 }
 
 func TestProposalTracker_OnLateProposal(t *testing.T) {
 	s := NewSetFromValues(value1, value2)
-	verifier := generateSigning(t)
+	verifier := generateSigning()
 	m1 := BuildProposalMsg(verifier, s)
 	tracker := newProposalTracker(log.NewDefault(verifier.PublicKey().String()))
 	tracker.OnProposal(context.TODO(), m1)
@@ -63,12 +63,12 @@ func TestProposalTracker_ProposedSet(t *testing.T) {
 	proposedSet := tracker.ProposedSet()
 	assert.Nil(t, proposedSet)
 	s1 := NewSetFromValues(value1, value2)
-	tracker.OnProposal(context.TODO(), buildProposalMsg(generateSigning(t), s1, []byte{1, 2, 3}))
+	tracker.OnProposal(context.TODO(), buildProposalMsg(generateSigning(), s1, []byte{1, 2, 3}))
 	proposedSet = tracker.ProposedSet()
 	assert.NotNil(t, proposedSet)
 	assert.True(t, s1.Equals(proposedSet))
 	s2 := NewSetFromValues(value3, value4, value5)
-	pub := generateSigning(t)
+	pub := generateSigning()
 	tracker.OnProposal(context.TODO(), buildProposalMsg(pub, s2, []byte{0}))
 	proposedSet = tracker.ProposedSet()
 	assert.True(t, s2.Equals(proposedSet))
