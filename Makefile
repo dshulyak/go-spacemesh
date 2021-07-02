@@ -72,7 +72,7 @@ DOCKERRUNARGS := --rm \
 	-e DUMP_QUEUE_NAME=$(DUMP_QUEUE_NAME) \
 	-e DUMP_QUEUE_ZONE=$(DUMP_QUEUE_ZONE)
 
-DOCKER_IMAGE = $(DOCKER_IMAGE_REPO):$(BRANCH)
+DOCKER_IMAGE ?= $(DOCKER_IMAGE_REPO):$(BRANCH)
 
 # We use a docker image corresponding to the commithash for staging and trying, to be safe
 # filter here is used as a logical OR operation
