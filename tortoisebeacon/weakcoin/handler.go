@@ -12,7 +12,6 @@ import (
 // HandleSerializedMessage defines method to handle Tortoise Beacon Weak Coin Messages from gossip.
 func (wc *WeakCoin) HandleSerializedMessage(ctx context.Context, data service.GossipMessage, sync service.Fetcher) {
 	wc.logger.With().Debug("received weak coin message",
-		log.String("from", data.Sender().String()),
 		log.Binary("data", data.Bytes()),
 	)
 
@@ -41,7 +40,7 @@ func (wc *WeakCoin) receiveMessage(message Message) error {
 
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
-	if wc.epoch != message.Epoch || wc.round != message.Round {
+	if wc.epoch != message.Epoch || wc.round != message.Round || !wc.epochStarted || !wc.roundStarted {
 		if wc.isNextRound(message.Epoch, message.Round) && len(wc.nextRoundBuffer) < cap(wc.nextRoundBuffer) {
 			wc.nextRoundBuffer = append(wc.nextRoundBuffer, message)
 			return nil
@@ -55,12 +54,15 @@ func (wc *WeakCoin) isNextRound(epoch types.EpochID, round types.RoundID) bool {
 	if wc.epoch == epoch && wc.round+1 == round && round <= wc.config.MaxRound {
 		return true
 	}
+	if wc.epoch+1 == epoch && wc.round == wc.config.MaxRound {
+		return true
+	}
 	// after completed epoch but haven't started the new one
-	if wc.epoch+1 == epoch && wc.round == 0 && wc.allowances == nil {
+	if wc.epoch+1 == epoch && !wc.roundStarted && !wc.epochStarted {
 		return true
 	}
 	// after started epoch but didn't start the round
-	if wc.epoch == epoch && wc.round == 0 {
+	if wc.epoch == epoch && !wc.roundStarted && wc.epochStarted {
 		return true
 	}
 	return false

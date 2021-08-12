@@ -589,7 +589,7 @@ func (tb *TortoiseBeacon) runConsensusPhase(ctx context.Context, epoch types.Epo
 	// For next rounds,
 	// wait for δ time, and construct a message that points to all messages from previous round received by δ.
 	// rounds 1 to K
-	ticker := time.NewTicker(tb.config.VotingRoundDuration + tb.config.WeakCoinRoundDuration)
+	ticker := time.NewTicker(tb.config.VotingRoundDuration)
 	defer ticker.Stop()
 
 	var coinflip bool
@@ -607,7 +607,12 @@ func (tb *TortoiseBeacon) runConsensusPhase(ctx context.Context, epoch types.Epo
 			return nil
 		})
 		tb.tg.Go(func(ctx context.Context) error {
-			tb.startWeakCoin(ctx, epoch, round)
+			if err := tb.weakCoin.StartRound(ctx, round); err != nil {
+				tb.Log.With().Error("Failed to publish weak coin proposal",
+					log.Uint64("epoch_id", uint64(epoch)),
+					log.Uint64("round_id", uint64(round)),
+					log.Err(err))
+			}
 			return nil
 		})
 		select {
@@ -642,27 +647,6 @@ func (tb *TortoiseBeacon) receivedBeforeProposalPhaseFinished(epoch types.EpochI
 	tb.Debug("checking if timestamp %v was received before proposal phase finished in epoch %v, is phase finished: %v, finished at: %v", receivedAt.String(), epoch, ok, finishedAt.String())
 
 	return !ok || receivedAt.Before(finishedAt)
-}
-
-func (tb *TortoiseBeacon) startWeakCoin(ctx context.Context, epoch types.EpochID, round types.RoundID) {
-	t := time.NewTimer(tb.config.VotingRoundDuration)
-	defer t.Stop()
-
-	select {
-	case <-t.C:
-		break
-	case <-ctx.Done():
-		return
-	}
-
-	// TODO(nkryuchkov):
-	// should be published only after we should have received them
-	if err := tb.weakCoin.StartRound(ctx, round); err != nil {
-		tb.Log.With().Error("Failed to publish weak coin proposal",
-			log.Uint64("epoch_id", uint64(epoch)),
-			log.Uint64("round_id", uint64(round)),
-			log.Err(err))
-	}
 }
 
 func (tb *TortoiseBeacon) sendVotes(ctx context.Context, epoch types.EpochID, round types.RoundID, coinflip bool) error {
