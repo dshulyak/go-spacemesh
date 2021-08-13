@@ -195,8 +195,10 @@ func AddCommands(cmd *cobra.Command) {
 		config.TortoiseBeacon.GracePeriodDuration, "Grace period duration in milliseconds")
 	cmd.PersistentFlags().DurationVar(&config.TortoiseBeacon.ProposalDuration, "tortoise-beacon-proposal-duration",
 		config.TortoiseBeacon.ProposalDuration, "Proposal duration in milliseconds")
+	cmd.PersistentFlags().DurationVar(&config.TortoiseBeacon.FirstVotingRoundDuration, "tortoise-beacon-first-voting-round-duration",
+		config.TortoiseBeacon.FirstVotingRoundDuration, "First voting round duration.")
 	cmd.PersistentFlags().DurationVar(&config.TortoiseBeacon.VotingRoundDuration, "tortoise-beacon-voting-round-duration",
-		config.TortoiseBeacon.VotingRoundDuration, "Voting round duration in milliseconds")
+		config.TortoiseBeacon.VotingRoundDuration, "Voting round duration.")
 	cmd.PersistentFlags().DurationVar(&config.TortoiseBeacon.WaitAfterEpochStart, "tortoise-beacon-wait-after-epoch-start",
 		config.TortoiseBeacon.WaitAfterEpochStart, "How many milliseconds to wait after a new epoch is started.")
 	cmd.PersistentFlags().Var((*types.RatVar)(config.TortoiseBeacon.Theta), "tortoise-beacon-theta",

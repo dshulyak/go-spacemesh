@@ -557,8 +557,8 @@ func (tb *TortoiseBeacon) runConsensusPhase(ctx context.Context, epoch types.Epo
 	// For next rounds,
 	// wait for δ time, and construct a message that points to all messages from previous round received by δ.
 	// rounds 1 to K
-	ticker := time.NewTicker(tb.config.VotingRoundDuration)
-	defer ticker.Stop()
+	roundTimer := time.NewTimer(tb.config.FirstVotingRoundDuration)
+	defer roundTimer.Stop()
 
 	var (
 		coinFlip            bool
@@ -633,7 +633,8 @@ func (tb *TortoiseBeacon) runConsensusPhase(ctx context.Context, epoch types.Epo
 		}
 
 		select {
-		case <-ticker.C:
+		case <-roundTimer.C:
+			roundTimer.Reset(tb.config.VotingRoundDuration)
 		case <-ctx.Done():
 			return allVotes{}, ctx.Err()
 		}
