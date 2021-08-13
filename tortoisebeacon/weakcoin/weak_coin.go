@@ -129,7 +129,7 @@ type WeakCoin struct {
 	coins           map[types.RoundID]bool
 }
 
-// Get the result of the coinflip in this round. It is only valid inbetween StartEpoch/EndEpoch
+// Get the result of the coin flip in this round. It is only valid in between StartEpoch/EndEpoch
 // and only after CompleteRound was called.
 func (wc *WeakCoin) Get(epoch types.EpochID, round types.RoundID) bool {
 	if epoch.IsGenesis() {
@@ -171,7 +171,7 @@ func (wc *WeakCoin) StartRound(ctx context.Context, round types.RoundID) error {
 	wc.mu.Lock()
 	wc.logger.With().Info("started round",
 		log.Uint32("epoch_id", uint32(wc.epoch)),
-		log.Uint64("round_id", uint64(round)))
+		log.Uint32("round_id", uint32(round)))
 	wc.roundStarted = true
 	wc.round = round
 	wc.smallestProposal = nil
@@ -184,7 +184,7 @@ func (wc *WeakCoin) StartRound(ctx context.Context, round types.RoundID) error {
 			wc.logger.With().Debug("received invalid proposal",
 				log.Err(err),
 				log.Uint32("epoch_id", uint32(msg.Epoch)),
-				log.Uint64("round_id", uint64(msg.Round)))
+				log.Uint32("round_id", uint32(msg.Round)))
 		}
 		wc.nextRoundBuffer[i] = Message{}
 	}
@@ -209,10 +209,8 @@ func (wc *WeakCoin) updateProposal(message Message) error {
 }
 
 func (wc *WeakCoin) prepareProposal(epoch types.EpochID, round types.RoundID) (broadcast, smallest []byte) {
-	var (
-		// TODO(dshulyak) double check that 10 means that 10 units are allowed
-		allowed, exists = wc.allowances[string(wc.signer.PublicKey().Bytes())]
-	)
+	// TODO(dshulyak) double check that 10 means that 10 units are allowed
+	allowed, exists := wc.allowances[string(wc.signer.PublicKey().Bytes())]
 	if !exists {
 		return
 	}
@@ -256,7 +254,7 @@ func (wc *WeakCoin) publishProposal(ctx context.Context, epoch types.EpochID, ro
 
 	wc.logger.With().Info("published proposal",
 		log.Uint32("epoch_id", uint32(epoch)),
-		log.Uint64("round_id", uint64(round)),
+		log.Uint32("round_id", uint32(round)),
 		log.String("proposal", types.BytesToHash(smallest).ShortString()))
 
 	wc.mu.Lock()
@@ -278,14 +276,18 @@ func (wc *WeakCoin) FinishRound() {
 	if wc.smallestProposal == nil {
 		wc.logger.With().Warning("completed round without valid proposals",
 			log.Uint32("epoch_id", uint32(wc.epoch)),
-			log.Uint64("round_id", uint64(wc.round)),
+			log.Uint32("round_id", uint32(wc.round)),
 		)
 		return
 	}
 	// NOTE(dshulyak) we need to select good bit here. for ed25519 it means select LSB and never MSB.
 	// https://datatracker.ietf.org/doc/html/draft-josefsson-eddsa-ed25519-03#section-5.2
 	// For another signature algorithm this may change
-	coinflip := wc.smallestProposal[0]&1 == 1
+	lsbIndex := 0
+	if !wc.signer.LittleEndian() {
+		lsbIndex = len(wc.smallestProposal) - 1
+	}
+	coinflip := wc.smallestProposal[lsbIndex]&1 == 1
 
 	wc.coins[wc.round] = coinflip
 	wc.logger.With().Info("completed round",

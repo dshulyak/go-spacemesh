@@ -42,6 +42,7 @@ func staticSigner(tb testing.TB, ctrl *gomock.Controller, sig []byte) *smocks.Mo
 	signer := smocks.NewMockSigner(ctrl)
 	signer.EXPECT().Sign(gomock.Any()).Return(sig).AnyTimes()
 	signer.EXPECT().PublicKey().Return(signing.NewPublicKey(sig)).AnyTimes()
+	signer.EXPECT().LittleEndian().Return(true).AnyTimes()
 	return signer
 }
 
@@ -164,7 +165,7 @@ func TestWeakCoin(t *testing.T) {
 				Epoch:     epoch - 1,
 				Round:     round,
 				Unit:      1,
-				Miner:     zeroLSB,
+				Miner:     oneLSB,
 				Signature: oneLSB,
 			}},
 		},
@@ -178,7 +179,7 @@ func TestWeakCoin(t *testing.T) {
 				Epoch:     epoch,
 				Round:     round - 1,
 				Unit:      1,
-				Miner:     zeroLSB,
+				Miner:     oneLSB,
 				Signature: oneLSB,
 			}},
 		},
