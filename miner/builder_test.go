@@ -236,7 +236,8 @@ func TestBlockBuilder_CreateBlockWithRef(t *testing.T) {
 	assert.Equal(t, []types.ATXID{atx1, atx2, atx3, atx4, atx5}, *b.ActiveSet)
 
 	//test create second block
-	bl, err := builder.createBlock(context.TODO(), types.GetEffectiveGenesis().Add(2), types.ATXID(types.Hash32{1, 2, 3}), types.BlockEligibilityProof{J: 1, Sig: []byte{1}}, transids, nil)
+	bl, err := builder.createBlock(context.TODO(), types.GetEffectiveGenesis().Add(2),
+		types.ATXID(types.Hash32{1, 2, 3}), types.BlockEligibilityProof{J: 1, Sig: []byte{1}}, transids, nil)
 	assert.NoError(t, err)
 
 	assert.Equal(t, hareRes, bl.ForDiff)

@@ -168,11 +168,11 @@ func (t *BlockBuilder) storeRefBlock(epoch types.EpochID, blockID types.BlockID)
 }
 
 func (t *BlockBuilder) getRefBlock(epoch types.EpochID) (blockID types.BlockID, err error) {
-	bts, err := t.db.Get(getEpochKey(epoch))
+	buf, err := t.db.Get(getEpochKey(epoch))
 	if err != nil {
 		return
 	}
-	err = types.BytesToInterface(bts, &blockID)
+	copy(blockID[:], buf)
 	return
 }
 
