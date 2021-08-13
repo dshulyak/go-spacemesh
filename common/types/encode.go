@@ -66,21 +66,13 @@ func BytesToTransaction(buf []byte) (*Transaction, error) {
 // BytesToInterface deserializes any type.
 // ⚠️ Pass the interface by reference
 func BytesToInterface(buf []byte, i interface{}) error {
-	_, err := Decode(bytes.NewReader(buf), i)
-	if err != nil {
-		return err
-	}
-	return nil
+	return Unmarshal(buf, i)
 }
 
 // InterfaceToBytes serializes any type.
 // ⚠️ Pass the interface by reference
 func InterfaceToBytes(i interface{}) ([]byte, error) {
-	var w bytes.Buffer
-	if _, err := Encode(&w, &i); err != nil {
-		return nil, err
-	}
-	return w.Bytes(), nil
+	return Marshal(i)
 }
 
 // ATXIdsToBytes serializes a slice of atx ids.
