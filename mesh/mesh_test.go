@@ -8,7 +8,6 @@ import (
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/database"
-	"github.com/spacemeshos/go-spacemesh/log"
 	"github.com/spacemeshos/go-spacemesh/log/logtest"
 	"github.com/spacemeshos/go-spacemesh/rand"
 	"github.com/spacemeshos/go-spacemesh/signing"
@@ -148,17 +147,14 @@ func addLayer(r *require.Assertions, id types.LayerID, layerSize int, msh *Mesh)
 		msh.SetZeroBlockLayer(id)
 	} else {
 		for i := 0; i < layerSize; i++ {
-			log.Info("creating block for layer %v", id)
 			txIDs, _ := addManyTXsToPool(r, msh, 4)
 			block := types.NewExistingBlock(id, []byte(rand.String(8)), txIDs)
 			block.Initialize()
-			log.Info("block created for layer %v", block.LayerIndex)
 			err := msh.AddBlockWithTxs(context.TODO(), block)
 			r.NoError(err, "cannot add data to test")
 			msh.contextualValidity.Put(block.ID().Bytes(), []byte{1})
 		}
 	}
-	log.Info("getting layer %v", id)
 	l, err := msh.GetLayer(id)
 	r.NoError(err, "cant get a layer we've just created")
 	return l

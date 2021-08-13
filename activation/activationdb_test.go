@@ -170,7 +170,7 @@ func getAtxDb(tb testing.TB, id string) (*DB, *mesh.Mesh, database.Database) {
 func rndStr() string {
 	a := make([]byte, 8)
 	_, _ = rand.Read(a)
-	return string(a)
+	return util.Bytes2Hex(a)
 }
 
 func createLayerWithAtx(t *testing.T, msh *mesh.Mesh, id types.LayerID, numOfBlocks int, atxs []*types.ActivationTx, votes []types.BlockID, views []types.BlockID) (created []types.BlockID) {
@@ -198,7 +198,7 @@ func createLayerWithAtx(t *testing.T, msh *mesh.Mesh, id types.LayerID, numOfBlo
 		if i < len(atxs) {
 			actualAtxs = atxs[i : i+1]
 		}
-		msh.ProcessAtxs(actualAtxs)
+		require.NoError(t, msh.ProcessAtxs(actualAtxs))
 		block1.Initialize()
 		err := msh.AddBlockWithTxs(context.TODO(), block1)
 		require.NoError(t, err)
@@ -358,9 +358,9 @@ func TestMesh_processBlockATXs(t *testing.T) {
 	types.SetLayersPerEpoch(layersPerEpochBig)
 	atxdb, _, _ := getAtxDb(t, "t6")
 
-	id1 := types.NodeID{Key: uuid.New().String(), VRFPublicKey: []byte("anton")}
-	id2 := types.NodeID{Key: uuid.New().String(), VRFPublicKey: []byte("anton")}
-	id3 := types.NodeID{Key: uuid.New().String(), VRFPublicKey: []byte("anton")}
+	id1 := types.NodeID{Key: "a", VRFPublicKey: []byte("anton")}
+	id2 := types.NodeID{Key: "b", VRFPublicKey: []byte("anton")}
+	id3 := types.NodeID{Key: "c", VRFPublicKey: []byte("anton")}
 	coinbase1 := types.HexToAddress("aaaa")
 	coinbase2 := types.HexToAddress("bbbb")
 	coinbase3 := types.HexToAddress("cccc")
@@ -369,7 +369,7 @@ func TestMesh_processBlockATXs(t *testing.T) {
 	npst := NewNIPostWithChallenge(&chlng, poetRef)
 	posATX := newActivationTx(types.NodeID{Key: "aaaaaa", VRFPublicKey: []byte("anton")}, 0, *types.EmptyATXID, *types.EmptyATXID, types.NewLayerID(1000), 0, 100, coinbase1, 100, npst)
 	err := atxdb.StoreAtx(0, posATX)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	atxs := []*types.ActivationTx{
 		newActivationTx(id1, 0, *types.EmptyATXID, posATX.ID(), types.NewLayerID(1012), 0, 100, coinbase1, 100, &types.NIPost{}),
 		newActivationTx(id2, 0, *types.EmptyATXID, posATX.ID(), types.NewLayerID(1300), 0, 100, coinbase2, 100, &types.NIPost{}),
@@ -377,12 +377,12 @@ func TestMesh_processBlockATXs(t *testing.T) {
 	}
 	for _, atx := range atxs {
 		hash, err := atx.NIPostChallenge.Hash()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		atx.NIPost = NewNIPostWithChallenge(hash, poetRef)
 	}
 
 	err = atxdb.ProcessAtxs(atxs)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// check that further atxs dont affect current epoch count
 	atxs2 := []*types.ActivationTx{
@@ -392,11 +392,11 @@ func TestMesh_processBlockATXs(t *testing.T) {
 	}
 	for _, atx := range atxs2 {
 		hash, err := atx.NIPostChallenge.Hash()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		atx.NIPost = NewNIPostWithChallenge(hash, poetRef)
 	}
 	err = atxdb.ProcessAtxs(atxs2)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assertEpochWeight(t, atxdb, 2, 100*100*4) // 1 posATX + 3 from `atxs`
 	assertEpochWeight(t, atxdb, 3, 100*100*3) // 3 from `atxs2`

@@ -973,11 +973,7 @@ func (m *DB) GetTransactionsByDestination(l types.LayerID, account types.Address
 			break
 		}
 		var a types.TransactionID
-		err := types.BytesToInterface(it.Value(), &a)
-		if err != nil {
-			// log error
-			break
-		}
+		copy(a[:], it.Value())
 		txs = append(txs, a)
 	}
 	return
@@ -991,11 +987,7 @@ func (m *DB) GetTransactionsByOrigin(l types.LayerID, account types.Address) (tx
 			break
 		}
 		var a types.TransactionID
-		err := types.BytesToInterface(it.Value(), &a)
-		if err != nil {
-			// log error
-			break
-		}
+		copy(a[:], it.Value())
 		txs = append(txs, a)
 	}
 	return

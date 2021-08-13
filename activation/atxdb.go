@@ -39,15 +39,24 @@ func getEpochPrefix(epoch types.EpochID) []byte {
 }
 
 func getAtxHeaderKey(atxID types.ATXID) []byte {
-	return []byte(fmt.Sprintf("h_%v", atxID.Bytes()))
+	var b bytes.Buffer
+	b.WriteString("h")
+	b.Write(atxID.Bytes())
+	return b.Bytes()
 }
 
 func getAtxBodyKey(atxID types.ATXID) []byte {
-	return atxID.Bytes()
+	var b bytes.Buffer
+	b.WriteString("b")
+	b.Write(atxID.Bytes())
+	return b.Bytes()
 }
 
 func getAtxTimestampKey(atxID types.ATXID) []byte {
-	return []byte(fmt.Sprintf("ts_%v", atxID.Bytes()))
+	var b bytes.Buffer
+	b.WriteString("t")
+	b.Write(atxID.Bytes())
+	return b.Bytes()
 }
 
 var (
@@ -204,7 +213,7 @@ func (db *DB) createTraversalFuncForMinerWeights(minerWeight map[string]uint64, 
 		for _, id := range *b.ActiveSet {
 			atx, err := db.GetAtxHeader(id)
 			if err != nil {
-				log.Panic("error fetching atx %v from database -- inconsistent state", id.ShortString()) // TODO: handle inconsistent state
+				log.Panic("error fetching atx %v from database -- inconsistent state: %v", id.ShortString(), err) // TODO: handle inconsistent state
 				return false, fmt.Errorf("error fetching atx %v from database -- inconsistent state", id.ShortString())
 			}
 
@@ -585,16 +594,13 @@ func (db *DB) GetNodeLastAtxID(nodeID types.NodeID) (types.ATXID, error) {
 
 // GetEpochAtxs returns all valid ATXs received in the epoch epochID
 func (db *DB) GetEpochAtxs(epochID types.EpochID) (atxs []types.ATXID) {
-	atxIterator := db.atxs.Find(getEpochPrefix(epochID))
-	for atxIterator.Next() {
-		if atxIterator.Key() == nil {
+	it := db.atxs.Find(getEpochPrefix(epochID))
+	for it.Next() {
+		if it.Key() == nil {
 			break
 		}
 		var a types.ATXID
-		if err := types.BytesToInterface(atxIterator.Value(), &a); err != nil {
-			db.log.Panic("cannot parse atx from DB")
-			break
-		}
+		copy(a[:], it.Value())
 		atxs = append(atxs, a)
 	}
 	db.log.With().Info("returned epoch atxs", epochID, log.Int("count", len(atxs)))
