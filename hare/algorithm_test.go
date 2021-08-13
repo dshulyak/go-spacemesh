@@ -111,7 +111,7 @@ type mockCommitTracker struct {
 	countHasEnoughCommits int
 	countBuildCertificate int
 	hasEnoughCommits      bool
-	certificate           *certificate
+	certificate           *Certificate
 }
 
 func (mct *mockCommitTracker) CommitCount() int {
@@ -127,7 +127,7 @@ func (mct *mockCommitTracker) HasEnoughCommits() bool {
 	return mct.hasEnoughCommits
 }
 
-func (mct *mockCommitTracker) BuildCertificate() *certificate {
+func (mct *mockCommitTracker) BuildCertificate() *Certificate {
 	mct.countBuildCertificate++
 	return mct.certificate
 }
@@ -649,7 +649,7 @@ func TestConsensusProcess_beginRound4(t *testing.T) {
 
 	proc.proposalTracker = mpt
 	proc.commitTracker = mct
-	mct.certificate = &certificate{}
+	mct.certificate = &Certificate{}
 	mpt.proposedSet = nil
 	proc.s = NewDefaultEmptySet()
 	proc.beginNotifyRound(context.TODO())

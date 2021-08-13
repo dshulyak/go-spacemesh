@@ -3,6 +3,7 @@ package miner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -220,7 +221,9 @@ func TestBlockBuilder_CreateBlockWithRef(t *testing.T) {
 
 	transids := []types.TransactionID{trans[0].ID(), trans[1].ID(), trans[2].ID()}
 
-	b, err := builder.createBlock(context.TODO(), types.GetEffectiveGenesis().Add(1), types.ATXID(types.Hash32{1, 2, 3}), types.BlockEligibilityProof{J: 0, Sig: []byte{1}}, transids, []types.ATXID{atx1, atx2, atx3, atx4, atx5})
+	b, err := builder.createBlock(context.TODO(), types.GetEffectiveGenesis().Add(1),
+		types.ATXID(types.Hash32{1, 2, 3}), types.BlockEligibilityProof{J: 0, Sig: []byte{1}},
+		transids, []types.ATXID{atx1, atx2, atx3, atx4, atx5})
 	assert.NoError(t, err)
 
 	assert.Equal(t, hareRes, b.ForDiff)
@@ -243,6 +246,7 @@ func TestBlockBuilder_CreateBlockWithRef(t *testing.T) {
 	assert.True(t, ContainsTx(bl.TxIDs, transids[1]))
 	assert.True(t, ContainsTx(bl.TxIDs, transids[2]))
 
+	fmt.Println(bl.RefBlock)
 	assert.Equal(t, *bl.RefBlock, b.ID())
 }
 

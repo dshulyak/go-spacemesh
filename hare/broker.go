@@ -187,7 +187,6 @@ func (b *Broker) eventLoop(ctx context.Context) {
 				logger.Error("could not convert priority queue message, ignoring")
 				continue
 			}
-
 			// create an inner context object to handle this message
 			messageCtx := ctx
 
@@ -202,7 +201,11 @@ func (b *Broker) eventLoop(ctx context.Context) {
 			msgLogger := logger.WithContext(messageCtx).WithFields(h)
 			hareMsg, err := MessageFromBuffer(msg.Bytes())
 			if err != nil {
-				msgLogger.With().Error("could not build message", h, log.Err(err))
+				msgLogger.With().Error("could not build message", log.Err(err))
+				continue
+			}
+			if hareMsg == nil {
+				msgLogger.With().Error("received nil body")
 				continue
 			}
 			msgLogger = msgLogger.WithFields(hareMsg)

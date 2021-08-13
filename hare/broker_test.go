@@ -375,12 +375,9 @@ func TestBroker_Send(t *testing.T) {
 	broker.eValidator = mev
 	broker.Start(context.TODO())
 
-	m := newMockGossipMsg(nil)
-	broker.inbox <- m
-
 	msg := BuildPreRoundMsg(signing.NewEdSigner(), NewSetFromValues(value1), nil).Message
 	msg.InnerMsg.InstanceID = types.NewLayerID(2)
-	m = newMockGossipMsg(msg)
+	m := newMockGossipMsg(msg)
 	broker.inbox <- m
 
 	msg.InnerMsg.InstanceID = types.NewLayerID(1)

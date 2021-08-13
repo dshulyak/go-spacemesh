@@ -9,15 +9,15 @@ import (
 	"github.com/spacemeshos/go-spacemesh/common/types"
 )
 
-type messageType byte
+type MessageType byte
 
 // declare all known message types
 const (
-	status   messageType = 0
-	proposal messageType = 1
-	commit   messageType = 2
-	notify   messageType = 3
-	pre      messageType = 10
+	status   MessageType = 0
+	proposal MessageType = 1
+	commit   MessageType = 2
+	notify   MessageType = 3
+	pre      MessageType = 10
 )
 
 // declare round identifiers
@@ -31,7 +31,7 @@ const (
 
 const defaultSetSize = 200
 
-func (mType messageType) String() string {
+func (mType MessageType) String() string {
 	switch mType {
 	case status:
 		return "Status"

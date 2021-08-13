@@ -88,7 +88,7 @@ type State struct {
 	k           int32        // the round counter (k%4 is the round number)
 	ki          int32        // indicates when S was first committed upon
 	s           *Set         // the set of values
-	certificate *certificate // the certificate
+	certificate *Certificate // the certificate
 }
 
 // StateQuerier provides a query to check if an Ed public key is active on the current consensus view.

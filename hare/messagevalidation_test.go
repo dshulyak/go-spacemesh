@@ -36,9 +36,9 @@ func TestMessageValidator_CommitStatus(t *testing.T) {
 func TestMessageValidator_ValidateCertificate(t *testing.T) {
 	validator := defaultValidator(t)
 	assert.False(t, validator.validateCertificate(context.TODO(), nil))
-	cert := &certificate{}
+	cert := &Certificate{}
 	assert.False(t, validator.validateCertificate(context.TODO(), cert))
-	cert.AggMsgs = &aggregatedMessages{}
+	cert.AggMsgs = &AggregatedMessages{}
 	assert.False(t, validator.validateCertificate(context.TODO(), cert))
 	msgs := make([]*Message, 0, validator.threshold)
 	cert.AggMsgs.Messages = msgs
@@ -113,7 +113,7 @@ func TestMessageValidator_IsStructureValid(t *testing.T) {
 	assert.False(t, validator.SyntacticallyValidateMessage(context.TODO(), m))
 
 	// empty set is allowed now
-	m.InnerMsg = &innerMessage{}
+	m.InnerMsg = &InnerMessage{}
 	assert.True(t, validator.SyntacticallyValidateMessage(context.TODO(), m))
 	m.InnerMsg.Values = nil
 	assert.True(t, validator.SyntacticallyValidateMessage(context.TODO(), m))
@@ -150,7 +150,7 @@ func TestMessageValidator_Aggregated(t *testing.T) {
 	funcs := make([]func(m *Msg) bool, 0)
 	r.Equal(errNilAggMsgs, validator.validateAggregatedMessage(context.TODO(), nil, funcs))
 
-	agg := &aggregatedMessages{}
+	agg := &AggregatedMessages{}
 	r.Equal(errNilMsgsSlice, validator.validateAggregatedMessage(context.TODO(), agg, funcs))
 
 	agg.Messages = makeMessages(validator.threshold - 1)
@@ -197,7 +197,7 @@ func TestMessageValidator_Aggregated(t *testing.T) {
 func makeMessages(eligibilityCount int) []*Message {
 	return []*Message{
 		{
-			InnerMsg: &innerMessage{
+			InnerMsg: &InnerMessage{
 				EligibilityCount: uint16(eligibilityCount),
 			},
 		},
@@ -342,18 +342,18 @@ func TestMessageValidator_validateSVP(t *testing.T) {
 	assert.True(t, validator.validateSVP(context.TODO(), m))
 }
 
-func buildSVP(ki int32, S ...*Set) *aggregatedMessages {
+func buildSVP(ki int32, S ...*Set) *AggregatedMessages {
 	msgs := make([]*Message, 0, len(S))
 	for _, s := range S {
 		msgs = append(msgs, buildStatusMsg(signing.NewEdSigner(), s, ki).Message)
 	}
 
-	svp := &aggregatedMessages{}
+	svp := &AggregatedMessages{}
 	svp.Messages = msgs
 	return svp
 }
 
-func validateMatrix(t *testing.T, mType messageType, msgK int32, exp []error) {
+func validateMatrix(t *testing.T, mType MessageType, msgK int32, exp []error) {
 	r := require.New(t)
 	rounds := []int32{-1, 0, 1, 2, 3, 4, 5, 6, 7}
 	v := defaultValidator(t)
