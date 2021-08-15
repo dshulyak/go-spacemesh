@@ -46,10 +46,7 @@ func getAtxHeaderKey(atxID types.ATXID) []byte {
 }
 
 func getAtxBodyKey(atxID types.ATXID) []byte {
-	var b bytes.Buffer
-	b.WriteString("b")
-	b.Write(atxID.Bytes())
-	return b.Bytes()
+	return atxID.Bytes()
 }
 
 func getAtxTimestampKey(atxID types.ATXID) []byte {
