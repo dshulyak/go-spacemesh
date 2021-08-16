@@ -27,15 +27,23 @@ func getNodeAtxKey(nodePK string, targetEpoch types.EpochID) []byte {
 }
 
 func getNodeAtxPrefix(nodePK string) []byte {
-	return []byte(fmt.Sprintf("n_%v_", nodePK))
+	var b bytes.Buffer
+	b.WriteString("n")
+	b.WriteString(nodePK)
+	return b.Bytes()
 }
 
 func getNodeAtxEpochKey(epoch types.EpochID, nodeID types.NodeID) []byte {
-	return append(getEpochPrefix(epoch), nodeID.ToBytes()...)
+	b := getEpochPrefix(epoch)
+	b.Write(nodeID.ToBytes())
+	return b.Bytes()
 }
 
-func getEpochPrefix(epoch types.EpochID) []byte {
-	return []byte(fmt.Sprintf("e_%v_", epoch.ToBytes()))
+func getEpochPrefix(epoch types.EpochID) *bytes.Buffer {
+	var b bytes.Buffer
+	b.WriteString("e")
+	b.Write(epoch.ToBytes())
+	return &b
 }
 
 func getAtxHeaderKey(atxID types.ATXID) []byte {
@@ -591,7 +599,7 @@ func (db *DB) GetNodeLastAtxID(nodeID types.NodeID) (types.ATXID, error) {
 
 // GetEpochAtxs returns all valid ATXs received in the epoch epochID
 func (db *DB) GetEpochAtxs(epochID types.EpochID) (atxs []types.ATXID) {
-	it := db.atxs.Find(getEpochPrefix(epochID))
+	it := db.atxs.Find(getEpochPrefix(epochID).Bytes())
 	for it.Next() {
 		if it.Key() == nil {
 			break
