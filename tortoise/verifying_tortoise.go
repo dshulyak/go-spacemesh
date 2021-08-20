@@ -391,7 +391,7 @@ func (t *turtle) processBlock(block *types.Block) error {
 		if fblk.LayerIndex.Before(window) {
 			continue
 		}
-
+		vote.Flushed = false
 		opinion[blk] = vote
 	}
 
