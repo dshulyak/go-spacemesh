@@ -208,7 +208,11 @@ func (s *state) Evict(ctx context.Context, windowStart types.LayerID) error {
 					b.Reset()
 				}
 			}
-			delete(s.BlockOpinionsByLayer[layerToEvict][blk], layerToEvict)
+		}
+		for lyr := range s.BlockOpinionsByLayer {
+			for blk := range s.BlockOpinionsByLayer[lyr] {
+				delete(s.BlockOpinionsByLayer[lyr][blk], layerToEvict)
+			}
 		}
 		if err := batch.Write(); err != nil {
 			return fmt.Errorf("write batch for layer %s to db: %w", layerToEvict, err)
