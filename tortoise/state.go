@@ -209,6 +209,7 @@ func (s *state) Evict(ctx context.Context, windowStart types.LayerID) error {
 				}
 			}
 		}
+		delete(s.BlockOpinionsByLayer, layerToEvict)
 		for lyr := range s.BlockOpinionsByLayer {
 			for blk := range s.BlockOpinionsByLayer[lyr] {
 				delete(s.BlockOpinionsByLayer[lyr][blk], layerToEvict)
