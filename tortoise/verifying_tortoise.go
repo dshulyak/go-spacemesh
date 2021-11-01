@@ -208,24 +208,7 @@ func (t *turtle) evict(ctx context.Context) {
 		log.FieldNamed("window_start", windowStart))
 
 	// evict from last evicted to the beginning of our window
-	for layerToEvict := t.LastEvicted.Add(1); layerToEvict.Before(windowStart); layerToEvict = layerToEvict.Add(1) {
-		logger.With().Debug("evicting layer", layerToEvict)
-		for blk := range t.BlockOpinionsByLayer[layerToEvict] {
-			delete(t.GoodBlocksIndex, blk)
-			delete(t.BlockLayer, blk)
-		}
-		// delete opinions _of_ blocks in the layer to evict
-		delete(t.BlockOpinionsByLayer, layerToEvict)
-
-		// delete opinions _about_ blocks in the layer to evict
-		for lyr := range t.BlockOpinionsByLayer {
-			for blk := range t.BlockOpinionsByLayer[lyr] {
-				delete(t.BlockOpinionsByLayer[lyr][blk], layerToEvict)
-			}
-		}
-	}
-	t.LastEvicted = windowStart.Sub(1)
-	if err := t.state.Evict(); err != nil {
+	if err := t.state.Evict(ctx, windowStart); err != nil {
 		logger.With().Panic("can't evict persisted state", log.Err(err))
 	}
 }
