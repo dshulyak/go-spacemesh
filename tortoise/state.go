@@ -99,6 +99,7 @@ func (s *state) Persist() error {
 	if err := batch.Put([]byte(namespaceVerified), s.Verified.Bytes()); err != nil {
 		return fmt.Errorf("put 'verified' namespace into batch: %w", err)
 	}
+
 	if err := batch.Write(); err != nil {
 		return fmt.Errorf("write batch: %w", err)
 	}
@@ -126,6 +127,7 @@ func (s *state) Recover() error {
 	if err != nil {
 		return fmt.Errorf("get 'last evicted' namespace from DB: %w", err)
 	}
+
 	s.LastEvicted = types.BytesToLayerID(buf)
 
 	it := s.db.Find([]byte(namespaceGood))
@@ -139,6 +141,7 @@ func (s *state) Recover() error {
 
 	it = s.db.Find([]byte(namespaceOpinions))
 	defer it.Release()
+
 	for it.Next() {
 		// first byte is namespace
 		layer1Offset := len(namespaceOpinions)
@@ -169,6 +172,7 @@ func (s *state) Recover() error {
 		}
 		s.BlockOpinionsByLayer[layer1][block1][layer2][block2] = opinion
 	}
+
 	if err := it.Error(); err != nil {
 		return fmt.Errorf("opinion iterator: %w", it.Error())
 	}
@@ -220,7 +224,38 @@ func (s *state) Evict(ctx context.Context, windowStart types.LayerID) error {
 		}
 		batch.Reset()
 	}
+
 	s.LastEvicted = windowStart.Sub(1)
+
+	if err := s.removeLeftDBLayers(); err != nil {
+		return fmt.Errorf("remove left DB layers: %w", err)
+	}
+
+	return nil
+}
+
+func (s *state) removeLeftDBLayers() error {
+	batch := s.db.NewBatch()
+
+	it := s.db.Find([]byte(namespaceOpinions))
+	defer it.Release()
+
+	for it.Next() {
+		// first byte is namespace
+		layer := decodeLayerKey(it.Key()[1:])
+		if layer.After(s.LastEvicted) {
+			continue
+		}
+		if err := batch.Delete(it.Key()); err != nil {
+			return fmt.Errorf("delete from batch: %w", err)
+		}
+	}
+	if it.Error() != nil {
+		return fmt.Errorf("batch iterator: %w", it.Error())
+	}
+	if err := batch.Write(); err != nil {
+		return fmt.Errorf("write batch: %w", err)
+	}
 	return nil
 }
 
