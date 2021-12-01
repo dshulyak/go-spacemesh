@@ -1,22 +1,25 @@
 package sim
 
-import "github.com/spacemeshos/go-spacemesh/common/types"
+import (
+	"math/rand"
+
+	"github.com/spacemeshos/go-spacemesh/common/types"
+)
 
 var _ StateMachine = (*Hare)(nil)
 
 // Hare is an instance of the hare consensus.
-// For each layer it outputs input vector and coinflip events.
+// At the end of each layer it outputs input vector and coinflip events.
+// Received blocks are assumed to be syntactically valid.
 type Hare struct {
-	lid      types.LayerID
-	prevCoin bool
-	bids     map[types.BlockID]struct{}
+	rng  *rand.Rand
+	bids map[types.BlockID]struct{}
 }
 
 // OnEvent blocks and produce layer vector at the end of layer.
 func (h *Hare) OnEvent(event Event) []Event {
 	switch ev := event.(type) {
 	case EventLayerStart:
-		h.lid = ev.LayerID
 		h.bids = map[types.BlockID]struct{}{}
 	case EventLayerEnd:
 		var bids []types.BlockID
@@ -24,11 +27,9 @@ func (h *Hare) OnEvent(event Event) []Event {
 			bids = append(bids, bid)
 		}
 		// head and tails are at equal probability.
-		coin := !h.prevCoin
-		h.prevCoin = coin
 		return []Event{
-			EventCoinflip{Coinflip: coin},
-			EventLayerVector{LayerID: h.lid, Vector: bids},
+			EventCoinflip{LayerID: ev.LayerID, Coinflip: h.rng.Int()%2 == 0},
+			EventLayerVector{LayerID: ev.LayerID, Vector: bids},
 		}
 	case EventBlock:
 		h.bids[ev.Block.ID()] = struct{}{}

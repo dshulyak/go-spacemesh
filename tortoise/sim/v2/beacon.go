@@ -14,7 +14,7 @@ func (b *Beacon) OnEvent(event Event) []Event {
 	switch ev := event.(type) {
 	case EventLayerEnd:
 		if ev.LayerID.GetEpoch() == ev.LayerID.Add(1).GetEpoch() {
-			break
+			return nil
 		}
 		beacon := make([]byte, 32)
 		b.rng.Read(beacon)
