@@ -2,20 +2,25 @@ package sim
 
 import "math/rand"
 
-var _ StateMachine = (*Beacon)(nil)
+var _ StateMachine = (*beacon)(nil)
 
-// Beacon outputs beacon at the last layer in epoch.
-type Beacon struct {
+func newBeacon(rng *rand.Rand) *beacon {
+	return &beacon{rng: rng}
+}
+
+// beacon outputs beacon at the last layer in epoch.
+type beacon struct {
 	rng *rand.Rand
 }
 
 // OnEvent ...
-func (b *Beacon) OnEvent(event Event) []Event {
+func (b *beacon) OnEvent(event Event) []Event {
 	switch ev := event.(type) {
-	case EventLayerEnd:
-		if ev.LayerID.GetEpoch() == ev.LayerID.Add(1).GetEpoch() {
+	case EventLayerStart:
+		if ev.LayerID.GetEpoch() == ev.LayerID.Sub(1).GetEpoch() {
 			return nil
 		}
+		// first layer of the epoch
 		beacon := make([]byte, 32)
 		b.rng.Read(beacon)
 		return []Event{

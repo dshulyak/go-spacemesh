@@ -2,29 +2,35 @@ package sim
 
 import (
 	"context"
+	"math/rand"
 
 	"github.com/spacemeshos/go-spacemesh/activation"
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/database"
+	"github.com/spacemeshos/go-spacemesh/log"
 	"github.com/spacemeshos/go-spacemesh/mesh"
 	"github.com/spacemeshos/go-spacemesh/signing"
-	"github.com/spacemeshos/go-spacemesh/tortoise"
+	"github.com/spacemeshos/go-spacemesh/system"
 )
 
-// StateMachine ...
-type StateMachine interface {
-	// OnEvent event.
-	OnEvent(Event) []Event
+var _ StateMachine = (*core)(nil)
+
+func newCore(rng *rand.Rand) *core {
+	c := &core{
+		rng: rng,
+	}
+	return c
 }
 
-var _ StateMachine = (*Core)(nil)
+// core state machine. Represents single instance of the honest tortoise consensus.
+type core struct {
+	logger log.Log
+	rng    *rand.Rand
 
-// Core state machine. Represents single instance of the honest tortoise consensus.
-type Core struct {
 	meshdb   *mesh.DB
 	atxdb    *activation.DB
 	beacons  *beaconStore
-	tortoise tortoise.Tortoise
+	tortoise system.Tortoise
 
 	// generated on setup
 	address types.Address
@@ -41,9 +47,13 @@ type Core struct {
 // OnEvent receive blocks, atx, input vector, beacon, coinflip and store them.
 // Generate atx at the end of each epoch.
 // Generate block at the start of every layer.
-func (c *Core) OnEvent(event Event) []Event {
+func (c *core) OnEvent(event Event) []Event {
 	switch ev := event.(type) {
 	case EventLayerStart:
+		// TODO(dshulyak) need to check if this instance is eligible to vote
+		// it can also be eligible to vote more than once.
+		// should i reuse original miner module for this or it will be too complex?
+
 		base, votes, err := c.tortoise.BaseBlock(context.TODO())
 		if err != nil {
 			panic(err)
@@ -81,6 +91,8 @@ func (c *Core) OnEvent(event Event) []Event {
 			id := types.BallotID(block.ID())
 			c.refBallot = &id
 		}
+	case EventHareTerminated:
+
 	case EventLayerEnd:
 		if ev.LayerID.GetEpoch() == ev.LayerID.Add(1).GetEpoch() {
 			return nil
@@ -127,4 +139,13 @@ func (b *beaconStore) GetBeacon(eid types.EpochID) ([]byte, error) {
 
 func (b *beaconStore) StoreBeacon(eid types.EpochID, beacon []byte) {
 	b.beacons[eid] = beacon
+}
+
+func newAtxDB(logger log.Log, mdb *mesh.DB, layersPerEpoch uint32) *activation.DB {
+	db := database.NewMemDatabase()
+	return activation.NewDB(db, nil, nil, mdb, layersPerEpoch, types.ATXID{1}, nil, logger)
+}
+
+func newMeshDB(logger log.Log) *mesh.DB {
+	return mesh.NewMemMeshDB(logger)
 }
