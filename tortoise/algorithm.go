@@ -17,8 +17,7 @@ import (
 
 // Config for protocol parameters.
 type Config struct {
-	Hdist           uint32        `mapstructure:"tortoise-hdist"`            // hare/input vector lookback distance
-	Zdist           uint32        `mapstructure:"tortoise-zdist"`            // hare result wait distance
+	Hdist           uint32        `mapstructure:"tortoise-hdist"`            // hare must terminate within hdist
 	ConfidenceParam uint32        `mapstructure:"tortoise-confidence-param"` // layers to wait for global consensus
 	WindowSize      uint32        `mapstructure:"tortoise-window-size"`      // size of the tortoise sliding window (in layers)
 	GlobalThreshold *big.Rat      `mapstructure:"tortoise-global-threshold"` // threshold for finalizing blocks and layers
@@ -37,7 +36,6 @@ func DefaultConfig() Config {
 	return Config{
 		LayerSize:                30,
 		Hdist:                    10,
-		Zdist:                    8,
 		ConfidenceParam:          5,
 		WindowSize:               100,
 		GlobalThreshold:          big.NewRat(60, 100),
@@ -106,13 +104,6 @@ func New(mdb blockDataProvider, atxdb atxDataProvider, beacons system.BeaconGett
 	}
 	for _, opt := range opts {
 		opt(t)
-	}
-
-	if t.cfg.Hdist < t.cfg.Zdist {
-		t.logger.With().Panic("hdist must be >= zdist",
-			log.Uint32("hdist", t.cfg.Hdist),
-			log.Uint32("zdist", t.cfg.Zdist),
-		)
 	}
 
 	ctx, cancel := context.WithCancel(t.ctx)

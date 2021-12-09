@@ -663,8 +663,7 @@ func (t *turtle) keepVotes(ballots []tortoiseBallot) {
 func (t *turtle) isHealingEnabled() bool {
 	lid := t.verified.Add(1)
 	return lid.Before(t.layerCutoff()) &&
-		t.last.Difference(lid) > t.Zdist &&
-		// unlike previous two parameters we count confidence interval from processed layer
+		// unlike previous parameter we count confidence interval from processed layer
 		// processed layer is significantly lower then the last layer during rerun.
 		// we need to wait some distance before switching from verifying to full during rerun
 		// as previous two parameters will be always true even if single layer is not verified.
@@ -675,7 +674,6 @@ func (t *turtle) healingTortoise(ctx *tcontext, logger log.Log) bool {
 	logger.With().Info("start self-healing tortoise",
 		log.Stringer("verified_layer", t.verified),
 		log.Stringer("layer_cutoff", t.layerCutoff()),
-		log.Uint32("zdist", t.Zdist),
 		log.Stringer("last_layer_received", t.last),
 		log.Uint32("confidence_param", t.ConfidenceParam),
 	)
@@ -715,13 +713,6 @@ func (t *turtle) addLocalOpinion(ctx *tcontext, lid types.LayerID, opinion Opini
 		// for newer layers, we vote according to the local opinion (input vector, from hare or sync)
 		opinionVec, err := getInputVector(ctx, t.bdp, lid)
 		if err != nil {
-			if t.last.After(types.NewLayerID(t.Zdist)) && lid.Before(t.last.Sub(t.Zdist)) {
-				// Layer has passed the Hare abort distance threshold, so we give up waiting for Hare results. At this point
-				// our opinion on this layer is that we vote against blocks (i.e., we support an empty layer).
-				return nil
-			}
-			// Hare hasn't failed and layer has not passed the Hare abort threshold, so we abstain while we keep waiting
-			// for Hare results.
 			logger.With().Warning("local opinion abstains on all blocks in layer", log.Err(err))
 			for _, bid := range bids {
 				opinion[bid] = abstain

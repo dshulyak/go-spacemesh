@@ -159,7 +159,6 @@ const (
 
 var (
 	defaultTestHdist           = DefaultConfig().Hdist
-	defaultTestZdist           = DefaultConfig().Zdist
 	defaultTestGlobalThreshold = big.NewRat(6, 10)
 	defaultTestLocalThreshold  = big.NewRat(2, 10)
 	defaultTestRerunInterval   = time.Hour
@@ -597,7 +596,6 @@ func TestCloneTurtle(t *testing.T) {
 	trtl2 := trtl.cloneTurtleParams()
 	r.Equal(trtl.bdp, trtl2.bdp)
 	r.Equal(trtl.Hdist, trtl2.Hdist)
-	r.Equal(trtl.Zdist, trtl2.Zdist)
 	r.Equal(trtl.ConfidenceParam, trtl2.ConfidenceParam)
 	r.Equal(trtl.WindowSize, trtl2.WindowSize)
 	r.Equal(trtl.LayerSize, trtl2.LayerSize)
@@ -612,7 +610,6 @@ func defaultTestConfig() Config {
 	return Config{
 		LayerSize:                defaultTestLayerSize,
 		Hdist:                    defaultTestHdist,
-		Zdist:                    defaultTestZdist,
 		ConfidenceParam:          defaultTestConfidenceParam,
 		WindowSize:               defaultTestWindowSize,
 		BadBeaconVoteDelayLayers: defaultVoteDelays,
@@ -2167,7 +2164,6 @@ func TestWeakCoinVoting(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.LayerSize = size
 	cfg.Hdist = hdist
-	cfg.Zdist = hdist
 	cfg.ConfidenceParam = 0
 
 	var (
@@ -2224,7 +2220,6 @@ func TestVoteAgainstSupportedByBaseBallot(t *testing.T) {
 	cfg.LayerSize = size
 	// cfg.WindowSize = 1
 	cfg.Hdist = 1
-	cfg.Zdist = 1
 	cfg.ConfidenceParam = 0
 
 	var (
@@ -2332,7 +2327,6 @@ func TestComputeLocalOpinion(t *testing.T) {
 			cfg := defaultTestConfig()
 			cfg.LayerSize = size
 			cfg.Hdist = hdist
-			cfg.Zdist = hdist
 			tortoise := tortoiseFromSimState(s.GetState(0), WithConfig(cfg))
 			for _, lid := range sim.GenLayers(s, tc.seqs...) {
 				tortoise.HandleIncomingLayer(ctx, lid)
@@ -2473,7 +2467,6 @@ func TestNetworkRecoversFromFullPartition(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.LayerSize = size
 	cfg.Hdist = 3
-	cfg.Zdist = 3
 	cfg.ConfidenceParam = 0
 
 	var (
@@ -2571,7 +2564,6 @@ func TestStateManagement(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.LayerSize = size
 	cfg.Hdist = hdist
-	cfg.Zdist = hdist
 	cfg.WindowSize = window
 
 	t.Run("VerifyingState", func(t *testing.T) {

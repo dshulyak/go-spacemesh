@@ -161,7 +161,6 @@ func getTestDefaultConfig() *config.Config {
 	cfg.LayersPerEpoch = 3
 	cfg.TxsPerBlock = 100
 	cfg.Tortoise.Hdist = 5
-	cfg.Tortoise.Zdist = 5
 
 	cfg.LayerDurationSec = 20
 	cfg.HareEligibility.ConfidenceParam = 4

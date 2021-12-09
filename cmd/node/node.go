@@ -296,9 +296,9 @@ func (app *App) Initialize() (err error) {
 	// hare's max time duration to run consensus for a layer
 	maxHareRoundsPerLayer := 1 + app.Config.HARE.LimitIterations*hare.RoundsPerIteration // pre-round + 4 rounds per iteration
 	maxHareLayerDurationSec := app.Config.HARE.WakeupDelta + maxHareRoundsPerLayer*app.Config.HARE.RoundDuration
-	if app.Config.LayerDurationSec*int(app.Config.Tortoise.Zdist) <= maxHareLayerDurationSec {
+	if app.Config.LayerDurationSec*int(app.Config.Tortoise.Hdist) <= maxHareLayerDurationSec {
 		log.With().Error("incompatible params",
-			log.Uint32("tortoise_zdist", app.Config.Tortoise.Zdist),
+			log.Uint32("tortoise_hdist", app.Config.Tortoise.Hdist),
 			log.Int("layer_duration", app.Config.LayerDurationSec),
 			log.Int("hare_wakeup_delta", app.Config.HARE.WakeupDelta),
 			log.Int("hare_limit_iterations", app.Config.HARE.LimitIterations),
