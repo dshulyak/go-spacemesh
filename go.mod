@@ -30,6 +30,7 @@ require (
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/multiformats/go-multiaddr v0.4.0
 	github.com/nullstyle/go-xdr v0.0.0-20180726165426-f4c839f75077
+	github.com/oasisprotocol/curve25519-voi v0.0.0-20211129104401-1d84291be125
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.30.0
 	github.com/pyroscope-io/pyroscope v0.0.30

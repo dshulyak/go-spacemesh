@@ -1,11 +1,14 @@
 package signing
 
 import (
+	mrand "math/rand"
 	"testing"
 
 	"github.com/spacemeshos/ed25519"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	oasised "github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"github.com/spacemeshos/go-spacemesh/rand"
 )
 
@@ -49,4 +52,38 @@ func TestPublicKey_ShortString(t *testing.T) {
 
 	pub = NewPublicKey([]byte{1, 2})
 	assert.Equal(t, pub.String(), pub.ShortString())
+}
+
+func BenchmarkVerify(b *testing.B) {
+	rng := mrand.New(mrand.NewSource(1001))
+	pubk, pk, err := ed25519.GenerateKey(rng)
+	require.NoError(b, err)
+	msg := make([]byte, 32)
+	rng.Read(msg)
+
+	sig := ed25519.Sign(pk, msg)
+	sigplusplus := ed25519.Sign2(pk, msg)
+
+	b.Run("Recover", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, err := ed25519.ExtractPublicKey(msg, sigplusplus)
+			if err != nil {
+				b.FailNow()
+			}
+		}
+	})
+	b.Run("Verify", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if !ed25519.Verify(pubk, msg, sig) {
+				b.FailNow()
+			}
+		}
+	})
+	b.Run("VerifyOasis", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if !oasised.Verify(oasised.PublicKey(pubk), msg, sig) {
+				b.FailNow()
+			}
+		}
+	})
 }
