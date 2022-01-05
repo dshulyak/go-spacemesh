@@ -761,10 +761,6 @@ func (t *turtle) addLocalVotes(ctx context.Context, logger log.Log, lid types.La
 			t.undecided[lid] = struct{}{}
 			return nil
 		}
-		bids := t.blocks[lid]
-		for _, bid := range bids {
-			t.hareOutput[bid] = against
-		}
 		if theOne != types.EmptyBlockID {
 			t.hareOutput[theOne] = support
 		}

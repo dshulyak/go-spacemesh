@@ -1408,11 +1408,10 @@ func skipLayers(n int) sim.VotesGenerator {
 			panic(fmt.Sprintf("need at least %d layers", position))
 		}
 		baseLayer := layers[len(layers)-position]
-		support := layers[len(layers)-position].BlocksIDs()[0:1]
-		against := layers[len(layers)-position].BlocksIDs()[1:]
+		support := layers[len(layers)-position].BlocksIDs()
 		ballots := baseLayer.Ballots()
 		base := ballots[rng.Intn(len(ballots))]
-		return sim.Voting{Base: base.ID(), Against: against, Support: support}
+		return sim.Voting{Base: base.ID(), Support: support}
 	}
 }
 
