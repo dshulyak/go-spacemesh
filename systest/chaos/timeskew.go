@@ -2,6 +2,7 @@ package chaos
 
 import (
 	"context"
+	"time"
 
 	chaos "github.com/chaos-mesh/chaos-mesh/api/v1alpha1"
 
@@ -28,4 +29,13 @@ func Timeskew(cctx *testcontext.Context, name string, offset string, pods ...str
 	return func(ctx context.Context) error {
 		return cctx.Generic.Delete(ctx, &tc)
 	}, nil
+}
+
+// TimeskewTask adjust CLOCK_REALTIME by the specified offset (offset can be positive or negative).
+type TimeskewTask struct {
+	Offset time.Duration
+}
+
+func (t TimeskewTask) Apply(ctx *testcontext.Context, name string, pods ...string) (Teardown, error) {
+	return Timeskew(ctx, name, t.Offset.String(), pods...)
 }

@@ -32,3 +32,9 @@ func Fail(cctx *testcontext.Context, name string, pods ...string) (Teardown, err
 		return cctx.Generic.Delete(ctx, &fail)
 	}, nil
 }
+
+type FailTask struct{}
+
+func (f FailTask) Apply(ctx *testcontext.Context, name string, pods ...string) (Teardown, error) {
+	return Fail(ctx, name, pods...)
+}
