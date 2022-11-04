@@ -2,46 +2,41 @@ package chaos
 
 import (
 	"context"
-	"fmt"
 
 	chaos "github.com/chaos-mesh/chaos-mesh/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	"github.com/spacemeshos/go-spacemesh/systest/testcontext"
 )
 
 type Delay struct {
 	Latency string
 }
 
-func (d Delay) Apply(ctx *testcontext.Context, name string, pods ...string) (Teardown, error) {
-	net := chaos.NetworkChaos{}
-	net.Name = name
-	net.Namespace = ctx.Namespace
+func (d Delay) Apply(ctx context.Context, client Client, name string, target Target) (Teardown, error) {
+	spec := chaos.NetworkChaos{}
+	spec.Name = name
+	spec.Namespace = target.Namespace
 
-	net.Spec.Action = chaos.DelayAction
-	net.Spec.Mode = chaos.AllMode
-	net.Spec.Selector.Pods = map[string][]string{
-		ctx.Namespace: pods,
-	}
-	net.Spec.Direction = chaos.Both
-	net.Spec.Target = &chaos.PodSelector{
+	spec.Spec.Action = chaos.DelayAction
+	spec.Spec.Mode = chaos.AllMode
+	spec.Spec.Selector = target.ToSpec()
+	spec.Spec.Direction = chaos.Both
+	spec.Spec.Target = &chaos.PodSelector{
 		Mode: chaos.AllMode,
 	}
-	net.Spec.Target.Selector.Namespaces = []string{ctx.Namespace}
+	spec.Spec.Target.Selector.Namespaces = []string{target.Namespace}
 
-	net.Spec.Delay = &chaos.DelaySpec{
+	spec.Spec.Delay = &chaos.DelaySpec{
 		Latency: d.Latency,
 	}
-	desired := net.DeepCopy()
-	_, err := controllerutil.CreateOrUpdate(ctx, ctx.Generic, &net, func() error {
-		net.Spec = desired.Spec
+	desired := spec.DeepCopy()
+	_, err := controllerutil.CreateOrUpdate(ctx, client, &spec, func() error {
+		spec.Spec = desired.Spec
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("bandwidth %v: %w", pods, err)
+		return nil, err
 	}
 	return func(rctx context.Context) error {
-		return ctx.Generic.Delete(rctx, &net)
+		return client.Delete(rctx, &spec)
 	}, nil
 }

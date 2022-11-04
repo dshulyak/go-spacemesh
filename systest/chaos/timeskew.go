@@ -36,6 +36,19 @@ type TimeskewTask struct {
 	Offset time.Duration
 }
 
-func (t TimeskewTask) Apply(ctx *testcontext.Context, name string, pods ...string) (Teardown, error) {
-	return Timeskew(ctx, name, t.Offset.String(), pods...)
+func (t TimeskewTask) Apply(ctx context.Context, client Client, name string, target Target) (Teardown, error) {
+	tc := chaos.TimeChaos{}
+	tc.Name = name
+	tc.Namespace = target.Namespace
+
+	tc.Spec.Mode = chaos.AllMode
+	tc.Spec.Selector = target.ToSpec()
+	tc.Spec.TimeOffset = t.Offset.String()
+
+	if err := client.Create(ctx, &tc); err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context) error {
+		return client.Delete(ctx, &tc)
+	}, nil
 }
