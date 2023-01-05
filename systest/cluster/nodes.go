@@ -39,8 +39,8 @@ var (
 	)
 
 	smesherLimit = apiv1.ResourceList{
-		apiv1.ResourceCPU:    resource.MustParse("0.3"),
-		apiv1.ResourceMemory: resource.MustParse("1Gi"),
+		apiv1.ResourceCPU:    resource.MustParse("0.5"),
+		apiv1.ResourceMemory: resource.MustParse("2Gi"),
 	}
 	bootLimit = apiv1.ResourceList{
 		apiv1.ResourceCPU:    resource.MustParse("1.5"),
@@ -132,12 +132,12 @@ func deployPoetPod(ctx *testcontext.Context, id string, flags ...DeploymentFlag)
 					WithResources(corev1.ResourceRequirements().WithRequests(
 						apiv1.ResourceList{
 							apiv1.ResourceCPU:    resource.MustParse("2"),
-							apiv1.ResourceMemory: resource.MustParse("16Gi"),
+							apiv1.ResourceMemory: resource.MustParse("8Gi"),
 						},
 					).WithLimits(
 						apiv1.ResourceList{
 							apiv1.ResourceCPU:    resource.MustParse("2"),
-							apiv1.ResourceMemory: resource.MustParse("16Gi"),
+							apiv1.ResourceMemory: resource.MustParse("8Gi"),
 						},
 					)),
 				),
