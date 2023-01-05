@@ -598,6 +598,8 @@ func extractP2PEndpoints(tctx *testcontext.Context, nodes []*NodeClient) ([]stri
 func defaultTargetOutbound(size int) int {
 	if size < 10 {
 		return 3
+	} else if size > 100 {
+		return 10
 	}
 	return int(0.3 * float64(size))
 }
