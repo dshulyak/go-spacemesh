@@ -14,6 +14,8 @@
         "tortoise-hdist": 10
     },
     "hare": {
+        "hare-committee-size": 200,
+        "hare-max-adversaries": 99,
         "hare-wakeup-delta": 10,
         "hare-round-duration-sec": 7,
         "hare-limit-iterations": 4 
