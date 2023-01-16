@@ -60,34 +60,23 @@ func (e *Proof) DecodeScale(dec *scale.Decoder) (int, error) {
 		e.Type = typ
 		total += n
 	}
+	var proof scale.Type
 	switch e.Type {
 	case MultipleATXs:
-		var proof AtxProof
-		n, err := proof.DecodeScale(dec)
-		if err != nil {
-			return total, err
-		}
-		e.Data = &proof
-		total += n
+		proof = &AtxProof{}
 	case MultipleBallots:
-		var proof BallotProof
-		n, err := proof.DecodeScale(dec)
-		if err != nil {
-			return total, err
-		}
-		e.Data = &proof
-		total += n
+		proof = &BallotProof{}
 	case HareEquivocation:
-		var proof HareProof
-		n, err := proof.DecodeScale(dec)
-		if err != nil {
-			return total, err
-		}
-		e.Data = &proof
-		total += n
+		proof = &HareProof{}
 	default:
 		return total, errors.New("unknown malfeasance type")
 	}
+	n, err := proof.DecodeScale(dec)
+	if err != nil {
+		return total, err
+	}
+	e.Data = proof
+	total += n
 	return total, nil
 }
 

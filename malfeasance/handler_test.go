@@ -3,13 +3,16 @@ package malfeasance_test
 import (
 	"context"
 	"testing"
+	"unsafe"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/spacemeshos/go-spacemesh/codec"
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/log/logtest"
 	"github.com/spacemeshos/go-spacemesh/malfeasance"
+	"github.com/spacemeshos/go-spacemesh/p2p"
 	"github.com/spacemeshos/go-spacemesh/p2p/pubsub"
 	"github.com/spacemeshos/go-spacemesh/signing"
 	"github.com/spacemeshos/go-spacemesh/sql"
@@ -664,4 +667,46 @@ func TestHandler_handleProof_hareEquivocation(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEqual(t, gossip.MalfeasanceProof, *malProof)
 	})
+}
+
+func TestBreak(t *testing.T) {
+	signer, err := signing.NewEdSigner()
+	require.NoError(t, err)
+	target := 10
+	m1 := types.BallotMetadata{
+		Layer:   types.NewLayerID(uint32(target)),
+		MsgHash: types.Hash32{1, 1, 1},
+	}
+	m2 := types.ATXMetadata{
+		Target:  types.EpochID(target),
+		MsgHash: types.Hash32{2, 2, 2},
+	}
+	m1buf, err := codec.Encode(&m1)
+	require.NoError(t, err)
+	m2buf, err := codec.Encode(&m2)
+	require.NoError(t, err)
+
+	db := sql.InMemory()
+	handler := malfeasance.NewHandler(db, logtest.New(t), p2p.Peer("self"))
+	msg, err := codec.Encode(&types.MalfeasanceGossip{
+		MalfeasanceProof: types.MalfeasanceProof{
+			Proof: types.Proof{
+				Type: types.MultipleBallots,
+				Data: &types.BallotProof{
+					Messages: [2]types.BallotProofMsg{
+						{InnerMsg: m1, Signature: signer.Sign(m1buf)},
+						{InnerMsg: *(*types.BallotMetadata)(unsafe.Pointer(&m2)), Signature: signer.Sign(m2buf)},
+					},
+				},
+			},
+		}})
+	require.NoError(t, err)
+	assert.Equal(t,
+		pubsub.ValidationReject,
+		handler.HandleMalfeasanceProof(context.Background(), "", msg),
+	)
+
+	malicious, err := identities.IsMalicious(db, signer.NodeID())
+	require.NoError(t, err)
+	assert.False(t, malicious)
 }
