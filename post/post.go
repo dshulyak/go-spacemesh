@@ -34,13 +34,13 @@ func setup(filename string) (*os.File, error) {
 	return f, nil
 }
 
-func Prove(cpu int, filename string, nonce uint32, k1, k2 uint64) error {
+func Prove(cpu int, filename string, nonce uint32, k1, k2 uint64) ([]uint64, error) {
 	f, err := setup(filename)
 	if f != nil {
 		defer f.Close()
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var (
 		proof      = make(chan uint64, k2)
@@ -78,5 +78,16 @@ func Prove(cpu int, filename string, nonce uint32, k1, k2 uint64) error {
 			}
 		})
 	}
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	close(proof)
+	rst := make([]uint64, 0, k2)
+	for p := range proof {
+		rst = append(rst, p)
+	}
+	if uint64(len(rst)) != k2 {
+		return nil, errors.New("increment nonce")
+	}
+	return rst, nil
 }
