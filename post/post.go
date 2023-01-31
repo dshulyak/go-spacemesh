@@ -59,19 +59,20 @@ func Prove(cpu int, filename string, k1, k2 uint64) error {
 					return err
 				}
 				// one byte label
+				index := uint64(0)
 				for _, b := range buf[:n] {
 					binary.BigEndian.PutUint32(input[32:], uint32(nonce))
 					input[36] = b
 					r := sha256.Sum256(input)
 					if r2 := binary.LittleEndian.Uint64(r[:]); r2 <= difficulty {
 						select {
-						case proof <- r2:
+						case proof <- index:
 						default:
 							return nil
 						}
 					}
+					index++
 				}
-
 				if errors.Is(err, io.EOF) {
 					return nil
 				}
