@@ -30,9 +30,13 @@ type Tx struct {
 }
 
 type StateModel struct {
-	mu                  sync.Mutex
-	coinbase            string
-	applied, optimistic struct {
+	mu       sync.Mutex
+	coinbase string
+	applied  struct {
+		layer              uint32
+		balance, nextNonce uint64
+	}
+	optimistic struct {
 		balance, nextNonce uint64
 	}
 	from, to, max uint32
@@ -41,8 +45,9 @@ type StateModel struct {
 	spawned     chan struct{}
 	waitBalance struct {
 		amount uint64
-		waiter chan struct{}
+		c      chan struct{}
 	}
+	reorg chan struct{}
 }
 
 type layer struct {
@@ -50,7 +55,9 @@ type layer struct {
 	reward *Reward
 }
 
-func (s *StateModel) Address() string {
+func (s *StateModel) Coinbase() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.coinbase
 }
 
@@ -64,18 +71,20 @@ func (s *StateModel) OnReward(reward *Reward) {
 	s.applied.balance += reward.Amount
 }
 
+func isRelevant(tx *Tx, coinbase string) bool {
+	for _, addr := range tx.Updated {
+		if addr == coinbase {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *StateModel) OnTx(tx *Tx) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	relevant := false
-	for _, addr := range tx.Updated {
-		relevant := addr == s.coinbase
-		if relevant {
-			break
-		}
-	}
-	if !relevant {
+	if !isRelevant(tx, s.coinbase) {
 		return
 	}
 	if s.coinbase == tx.Principal {
@@ -99,11 +108,39 @@ func (s *StateModel) OnTx(tx *Tx) {
 	}
 }
 
-func (s *StateModel) PullForTx(ctx context.Context, amount uint64) *uint64 {
+func (s *StateModel) OnLayer(layer uint32, hash string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	// reorg is started when layer with a different hash is received
+	// reorg is finished wnen all previously applied layers got an event
 
-	s.mu.Unlock()
+	// it is very hard to understand what should be a behavior for the wallet
+	reorg := false
+	if reorg {
+		s.reorg = make(chan struct{})
+	}
+}
 
+type Expected struct {
+	Applied struct {
+		Layer              uint32
+		Balance, NextNonce uint64
+	}
+	Optimistic struct {
+		Balance, NextNonce uint64
+	}
+}
+
+func (s *StateModel) Expect() Expected {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	expected := Expected{}
+	expected.Applied.Layer = s.applied.layer
+	expected.Applied.Balance = s.applied.balance
+	expected.Applied.NextNonce = s.applied.nextNonce
+	expected.Optimistic.Balance = s.applied.balance
+	expected.Optimistic.NextNonce = s.applied.nextNonce
+	return expected
 }
 
 func (s *StateModel) onTransfer(from, to string, amount uint64) {
@@ -112,51 +149,40 @@ func (s *StateModel) onTransfer(from, to string, amount uint64) {
 		s.applied.balance -= amount
 	case to:
 		s.applied.balance += amount
-		if s.waitBalance.waiter != nil && s.waitBalance.amount >= s.optimistic.balance {
-			s.waitBalance.waiter = nil
+		if s.waitBalance.c != nil && s.waitBalance.amount >= s.optimistic.balance {
+			s.waitBalance.c = nil
 			s.waitBalance.amount = 0
-			close(s.waitBalance.waiter)
+			close(s.waitBalance.c)
 		}
 	}
 }
 
-func (s *StateModel) waitSpawned(ctx context.Context) bool {
+type SpawnState int
+
+const (
+	Unknown SpawnState = iota
+	NeedsSpawn
+	Spawned
+)
+
+func (s *StateModel) WaitSpawned(ctx context.Context) SpawnState {
 	select {
 	case <-ctx.Done():
-		return false
+		return Unknown
 	case <-s.spawned:
-		return true
-	}
-}
-
-func (s *StateModel) needsSpawn() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.isSpawned() {
-		return true
-	}
-	// check if spawn is in the tx list, and in this case simply wait
-	return false
-}
-
-func (s *StateModel) isSpawned() bool {
-	select {
-	case <-s.spawned:
-		return true
-	default:
-		return false
+		return Spawned
 	}
 }
 
 func (s *StateModel) waitForAmount(ctx context.Context, amount uint64) bool {
 	s.mu.Lock()
-	if s.waitBalance.waiter == nil {
-		s.waitBalance.waiter = make(chan struct{})
+	if s.waitBalance.c == nil {
+		s.waitBalance.c = make(chan struct{})
 		s.waitBalance.amount = amount
 	} else {
 		s.waitBalance.amount += amount
 	}
-	waiter := s.waitBalance.waiter
+	waiter := s.waitBalance.c
 	s.mu.Unlock()
 	select {
 	case <-ctx.Done():
