@@ -34,7 +34,7 @@ func setup(filename string) (*os.File, error) {
 	return f, nil
 }
 
-func Prove(cpu int, filename string, k1, k2 uint64) error {
+func Prove(cpu int, filename string, nonce uint32, k1, k2 uint64) error {
 	f, err := setup(filename)
 	if f != nil {
 		defer f.Close()
@@ -45,8 +45,7 @@ func Prove(cpu int, filename string, k1, k2 uint64) error {
 	var (
 		proof      = make(chan uint64, k2)
 		eg         errgroup.Group
-		nonce      = 10001
-		difficulty = provingDifficulty(512<<20, k1)
+		difficulty = provingDifficulty(256<<30, k1)
 	)
 	for i := 0; i < cpu; i++ {
 		eg.Go(func() error {
