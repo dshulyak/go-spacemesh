@@ -45,14 +45,11 @@ func Prove(cpu int, filename string, k1, k2 uint64) error {
 	var (
 		proof      = make(chan uint64, k2)
 		eg         errgroup.Group
-		share      = 80 / cpu
+		nonce      = 10001
 		difficulty = provingDifficulty(512<<20, k1)
 	)
 	for i := 0; i < cpu; i++ {
-		i := 0
 		eg.Go(func() error {
-			start := share * i
-			end := share * (i + 1)
 			buf := make([]byte, 1<<20)
 			input := make([]byte, 37)
 			copy(input, "any challenge")
@@ -61,21 +58,20 @@ func Prove(cpu int, filename string, k1, k2 uint64) error {
 				if err != nil && !errors.Is(err, io.EOF) {
 					return err
 				}
-				for nonce := start; nonce <= end; nonce++ {
-					// one byte label
-					for _, b := range buf[:n] {
-						binary.BigEndian.PutUint32(input[32:], uint32(nonce))
-						input[36] = b
-						r := sha256.Sum256(input)
-						if r2 := binary.LittleEndian.Uint64(r[:]); r2 <= difficulty {
-							select {
-							case proof <- r2:
-							default:
-								return nil
-							}
+				// one byte label
+				for _, b := range buf[:n] {
+					binary.BigEndian.PutUint32(input[32:], uint32(nonce))
+					input[36] = b
+					r := sha256.Sum256(input)
+					if r2 := binary.LittleEndian.Uint64(r[:]); r2 <= difficulty {
+						select {
+						case proof <- r2:
+						default:
+							return nil
 						}
 					}
 				}
+
 				if errors.Is(err, io.EOF) {
 					return nil
 				}
