@@ -75,8 +75,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 					binary.BigEndian.PutUint32(k[32:], uint32(nonce))
 					k[36] = b
 					h.OneBlock(length, &k, &r)
-					h.Reset()
-					if r2 := binary.LittleEndian.Uint64(r[:]); r2 <= difficulty {
+					if r2 := binary.LittleEndian.Uint64(r[:8]); r2 <= difficulty {
 						pos := atomic.AddUint64(&position, 1)
 						if pos >= k2 {
 							return nil
@@ -84,6 +83,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 						proof[pos-1] = i
 					}
 					i++
+					h.Reset()
 				}
 				if errors.Is(err, io.EOF) {
 					return nil
