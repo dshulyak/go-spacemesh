@@ -9,7 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/minio/sha256-simd"
+	"github.com/cespare/xxhash/v2"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
@@ -47,7 +47,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 	var (
 		proof      = make([]uint64, k2)
 		position   uint64
-		step       = 4 << 20
+		step       = 1 << 20
 		eg         errgroup.Group
 		difficulty = provingDifficulty(256<<30, k1)
 
@@ -57,10 +57,9 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 	for i := 0; i < cpu; i++ {
 		eg.Go(func() error {
 			buf := make([]byte, step)
-			h := sha256.New().(*sha256.Digest)
-			r := [32]byte{}
 			k := [64]byte{}
 			length := 37
+
 			copy(k[:], challenge)
 			for {
 				mu.Lock()
@@ -68,14 +67,14 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 				i := index
 				index += uint64(n)
 				mu.Unlock()
+
 				if err != nil && !errors.Is(err, io.EOF) {
 					return err
 				}
 				for _, b := range buf[:n] {
 					binary.BigEndian.PutUint32(k[32:], uint32(nonce))
 					k[36] = b
-					h.OneBlock(length, &k, &r)
-					if r2 := binary.LittleEndian.Uint64(r[:8]); r2 <= difficulty {
+					if r2 := xxhash.Sum64(k[:length]); r2 <= difficulty {
 						pos := atomic.AddUint64(&position, 1)
 						if pos >= k2 {
 							return nil
@@ -83,7 +82,6 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 						proof[pos-1] = i
 					}
 					i++
-					h.Reset()
 				}
 				if errors.Is(err, io.EOF) {
 					return nil
