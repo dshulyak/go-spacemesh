@@ -47,7 +47,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 	var (
 		proof      = make([]uint64, k2)
 		position   uint64
-		step       = 4 << 20
+		step       = 1 << 20
 		eg         errgroup.Group
 		difficulty = provingDifficulty(256<<30, k1)
 
@@ -57,10 +57,10 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 	for i := 0; i < cpu; i++ {
 		eg.Go(func() error {
 			buf := make([]byte, step)
-			input := make([]byte, 37)
-			copy(input, challenge)
 			h := sha256.New().(*sha256.Digest)
 			r := [32]byte{}
+			k := [64]byte{}
+			copy(k[:], challenge)
 			for {
 				mu.Lock()
 				n, err := f.Read(buf)
@@ -71,10 +71,9 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 					return err
 				}
 				for _, b := range buf[:n] {
-					binary.BigEndian.PutUint32(input[32:], uint32(nonce))
-					input[36] = b
-					h.Write(input)
-					h.CheckSumInto(&r)
+					binary.BigEndian.PutUint32(k[32:], uint32(nonce))
+					k[36] = b
+					h.OneShot(37, &k, &r)
 					h.Reset()
 					if r2 := binary.LittleEndian.Uint64(r[:]); r2 <= difficulty {
 						pos := atomic.AddUint64(&position, 1)
