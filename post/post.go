@@ -47,7 +47,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 	var (
 		proof      = make([]uint64, k2)
 		position   uint64
-		step       = 1 << 20
+		step       = 4 << 20
 		eg         errgroup.Group
 		difficulty = provingDifficulty(256<<30, k1)
 
@@ -60,7 +60,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 			h := sha256.New().(*sha256.Digest)
 			r := [32]byte{}
 			k := [64]byte{}
-			length := 7
+			length := 37
 			copy(k[:], challenge)
 			for {
 				mu.Lock()
