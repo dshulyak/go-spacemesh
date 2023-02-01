@@ -1,6 +1,7 @@
 package simple
 
 import (
+	"crypto/aes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/cespare/xxhash/v2"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
@@ -54,13 +54,16 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 		mu    sync.Mutex
 		index uint64
 	)
+
 	for i := 0; i < cpu; i++ {
 		eg.Go(func() error {
 			buf := make([]byte, step)
-			k := [64]byte{}
-			length := 37
-
-			copy(k[:], challenge)
+			dst := [64]byte{}
+			src := [64]byte{}
+			kernel, err := aes.NewCipher(make([]byte, 32))
+			if err != nil {
+				return err
+			}
 			for {
 				mu.Lock()
 				n, err := f.Read(buf)
@@ -72,9 +75,10 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 					return err
 				}
 				for _, b := range buf[:n] {
-					binary.BigEndian.PutUint32(k[32:], uint32(nonce))
-					k[36] = b
-					if r2 := xxhash.Sum64(k[:length]); r2 <= difficulty {
+					binary.BigEndian.PutUint32(src[0:], uint32(nonce))
+					src[5] = b
+					kernel.Encrypt(dst[:16], src[:16])
+					if r2 := binary.BigEndian.Uint64(dst[:]); r2 <= difficulty {
 						pos := atomic.AddUint64(&position, 1)
 						if pos >= k2 {
 							return nil
