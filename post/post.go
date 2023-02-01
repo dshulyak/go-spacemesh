@@ -60,6 +60,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 			h := sha256.New().(*sha256.Digest)
 			r := [32]byte{}
 			k := [64]byte{}
+			length := 7
 			copy(k[:], challenge)
 			for {
 				mu.Lock()
@@ -73,7 +74,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 				for _, b := range buf[:n] {
 					binary.BigEndian.PutUint32(k[32:], uint32(nonce))
 					k[36] = b
-					h.OneShot(37, &k, &r)
+					h.OneBlock(length, &k, &r)
 					h.Reset()
 					if r2 := binary.LittleEndian.Uint64(r[:]); r2 <= difficulty {
 						pos := atomic.AddUint64(&position, 1)
