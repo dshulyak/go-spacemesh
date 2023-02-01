@@ -6,6 +6,8 @@ import (
 	"io"
 	"math"
 	"os"
+	"sync"
+	"sync/atomic"
 
 	"github.com/minio/sha256-simd"
 	"golang.org/x/sync/errgroup"
@@ -34,7 +36,7 @@ func setup(filename string) (*os.File, error) {
 	return f, nil
 }
 
-func Prove(cpu int, filename string, nonce uint32, k1, k2 uint64) ([]uint64, error) {
+func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint64) ([]uint64, error) {
 	f, err := setup(filename)
 	if f != nil {
 		defer f.Close()
@@ -43,34 +45,41 @@ func Prove(cpu int, filename string, nonce uint32, k1, k2 uint64) ([]uint64, err
 		return nil, err
 	}
 	var (
-		proof      = make(chan uint64, k2)
+		proof      = make([]uint64, k2)
+		position   uint64
+		step       = 1 << 20
 		eg         errgroup.Group
 		difficulty = provingDifficulty(256<<30, k1)
+
+		mu    sync.Mutex
+		index uint64
 	)
 	for i := 0; i < cpu; i++ {
 		eg.Go(func() error {
-			buf := make([]byte, 1<<20)
+			buf := make([]byte, step)
 			input := make([]byte, 37)
-			copy(input, "any challenge")
+			copy(input, challenge)
 			for {
+				mu.Lock()
 				n, err := f.Read(buf)
+				i := index
+				index += uint64(n)
+				mu.Unlock()
 				if err != nil && !errors.Is(err, io.EOF) {
 					return err
 				}
-				// one byte label
-				index := uint64(0)
 				for _, b := range buf[:n] {
 					binary.BigEndian.PutUint32(input[32:], uint32(nonce))
 					input[36] = b
 					r := sha256.Sum256(input)
 					if r2 := binary.LittleEndian.Uint64(r[:]); r2 <= difficulty {
-						select {
-						case proof <- index:
-						default:
+						pos := atomic.AddUint64(&position, 1)
+						if pos >= k2 {
 							return nil
 						}
+						proof[pos-1] = i
 					}
-					index++
+					i++
 				}
 				if errors.Is(err, io.EOF) {
 					return nil
@@ -81,13 +90,6 @@ func Prove(cpu int, filename string, nonce uint32, k1, k2 uint64) ([]uint64, err
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
-	close(proof)
-	rst := make([]uint64, 0, k2)
-	for p := range proof {
-		rst = append(rst, p)
-	}
-	if uint64(len(rst)) != k2 {
-		return nil, errors.New("increment nonce")
-	}
-	return rst, nil
+	// check positition >= k2
+	return proof, nil
 }
