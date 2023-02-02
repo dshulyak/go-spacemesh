@@ -59,6 +59,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 			buf := make([]byte, step)
 			k := [64]byte{}
 			copy(k[:], challenge)
+			binary.BigEndian.PutUint32(k[32:], uint32(nonce))
 			for {
 				mu.Lock()
 				n, err := f.Read(buf)
@@ -70,9 +71,9 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 					return err
 				}
 				for _, b := range buf[:n] {
-					binary.BigEndian.PutUint32(k[32:], uint32(nonce))
-					k[36] = b
-					if r2 := murmur3.Sum64(k[:37]); r2 <= difficulty {
+					binary.BigEndian.PutUint64(k[36:], i)
+					k[45] = b
+					if r2 := murmur3.Sum64(k[:39]); r2 <= difficulty {
 						pos := atomic.AddUint64(&position, 1)
 						if pos >= k2 {
 							return nil
