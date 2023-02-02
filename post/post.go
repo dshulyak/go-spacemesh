@@ -9,7 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/cespare/xxhash/v2"
+	"github.com/twmb/murmur3"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
@@ -58,8 +58,6 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 		eg.Go(func() error {
 			buf := make([]byte, step)
 			k := [64]byte{}
-			length := 37
-
 			copy(k[:], challenge)
 			for {
 				mu.Lock()
@@ -74,7 +72,7 @@ func Prove(cpu int, filename string, challenge []byte, nonce uint32, k1, k2 uint
 				for _, b := range buf[:n] {
 					binary.BigEndian.PutUint32(k[32:], uint32(nonce))
 					k[36] = b
-					if r2 := xxhash.Sum64(k[:length]); r2 <= difficulty {
+					if r2 := murmur3.Sum64(k[:37]); r2 <= difficulty {
 						pos := atomic.AddUint64(&position, 1)
 						if pos >= k2 {
 							return nil
