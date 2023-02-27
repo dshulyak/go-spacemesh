@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -22,20 +21,13 @@ type EventSpacemeshPeer struct {
 	Connectedness network.Connectedness
 }
 
-// Config for bootstrap.
-type Config struct {
-	TargetOutbound int
-	Timeout        time.Duration
-}
-
 // NewBootstrap create Bootstrap instance.
-func NewBootstrap(logger log.Log, cfg Config, h host.Host) (*Bootstrap, error) {
+func NewBootstrap(logger log.Log, h host.Host) (*Bootstrap, error) {
 	// TODO(dshulyak) refactor to option and merge Bootstrap with Peers to avoid unnecessary event
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &Bootstrap{
 		cancel: cancel,
 		logger: logger,
-		cfg:    cfg,
 		host:   h,
 	}
 	emitter, err := h.EventBus().Emitter(new(EventSpacemeshPeer))
@@ -56,7 +48,6 @@ func NewBootstrap(logger log.Log, cfg Config, h host.Host) (*Bootstrap, error) {
 // Bootstrap enforces required number of outbound connections.
 type Bootstrap struct {
 	logger log.Log
-	cfg    Config
 
 	host host.Host
 
@@ -92,9 +83,7 @@ func (b *Bootstrap) run(ctx context.Context, sub event.Subscription, emitter eve
 	var (
 		outbound int
 		peers    = map[peer.ID]network.Direction{}
-		ticker   = time.NewTicker(b.cfg.Timeout)
 	)
-	defer ticker.Stop()
 	for {
 		select {
 		case evt := <-sub.Out():

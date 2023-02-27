@@ -81,10 +81,7 @@ func Upgrade(h host.Host, genesisID types.Hash20, opts ...Opt) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize pubsub: %w", err)
 	}
-	if fh.bootstrap, err = bootstrap.NewBootstrap(fh.logger, bootstrap.Config{
-		TargetOutbound: fh.cfg.TargetOutbound,
-		Timeout:        fh.cfg.BootstrapTimeout,
-	}, fh); err != nil {
+	if fh.bootstrap, err = bootstrap.NewBootstrap(fh.logger, fh); err != nil {
 		return nil, fmt.Errorf("failed to initiliaze bootstrap: %w", err)
 	}
 	fh.PubSub = router

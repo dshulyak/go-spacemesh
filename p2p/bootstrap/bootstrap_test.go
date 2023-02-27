@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"testing"
-	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
@@ -25,11 +24,7 @@ func TestBootstrapEmitEvents(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { sub.Close() })
 
-	boot, err := NewBootstrap(
-		logtest.New(t),
-		Config{TargetOutbound: 5, Timeout: 5 * time.Second},
-		h,
-	)
+	boot, err := NewBootstrap(logtest.New(t), h)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = boot.Stop() })
 

@@ -83,12 +83,10 @@ func AddCommands(cmd *cobra.Command) {
 	cmd.PersistentFlags().IntVar(&cfg.P2P.HighPeers, "high-peers",
 		cfg.P2P.HighPeers,
 		"high watermark for the number of connections; once reached, connections are pruned until low watermark remains")
-	cmd.PersistentFlags().IntVar(&cfg.P2P.TargetOutbound, "target-outbound",
-		cfg.P2P.TargetOutbound, "target outbound connections")
+	cmd.PersistentFlags().BoolVar(&cfg.P2P.IsBootnode, "is-bootnode", false,
+		"if set to true this node will be configured as a bootstrapper")
 	cmd.PersistentFlags().StringSliceVar(&cfg.P2P.Bootnodes, "bootnodes",
 		cfg.P2P.Bootnodes, "entrypoints into the network")
-	cmd.PersistentFlags().StringVar(&cfg.P2P.AdvertiseAddress, "advertise-address",
-		cfg.P2P.AdvertiseAddress, "libp2p address with identity (example: /dns4/bootnode.spacemesh.io/tcp/5003)")
 
 	/** ======================== TIME Flags ========================== **/
 

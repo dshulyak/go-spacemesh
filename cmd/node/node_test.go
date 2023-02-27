@@ -680,9 +680,6 @@ func TestSpacemeshApp_TransactionService(t *testing.T) {
 		// Prevent obnoxious warning in macOS
 		app.Config.P2P.Listen = "/ip4/127.0.0.1/tcp/7073"
 
-		// Avoid waiting for new connections.
-		app.Config.P2P.TargetOutbound = 0
-
 		// syncer will cause the node to go out of sync (and not listen to gossip)
 		// since we are testing single-node transaction service, we don't need the syncer to run
 		app.Config.SyncInterval = 1000000
@@ -963,8 +960,6 @@ func getTestDefaultConfig() *config.Config {
 		log.Error("cannot load config from file")
 		return nil
 	}
-	// is set to 0 to make sync start immediately when node starts
-	cfg.P2P.TargetOutbound = 0
 
 	cfg.POST = activation.DefaultPostConfig()
 	cfg.POST.MinNumUnits = 2
