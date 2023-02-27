@@ -22,13 +22,14 @@ type EventSpacemeshPeer struct {
 }
 
 // NewBootstrap create Bootstrap instance.
-func NewBootstrap(logger log.Log, h host.Host) (*Bootstrap, error) {
+func NewBootstrap(logger log.Log, h host.Host, bootnodes []*peer.AddrInfo) (*Bootstrap, error) {
 	// TODO(dshulyak) refactor to option and merge Bootstrap with Peers to avoid unnecessary event
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &Bootstrap{
-		cancel: cancel,
-		logger: logger,
-		host:   h,
+		cancel:    cancel,
+		logger:    logger,
+		host:      h,
+		bootnodes: bootnodes,
 	}
 	emitter, err := h.EventBus().Emitter(new(EventSpacemeshPeer))
 	if err != nil {
@@ -49,7 +50,8 @@ func NewBootstrap(logger log.Log, h host.Host) (*Bootstrap, error) {
 type Bootstrap struct {
 	logger log.Log
 
-	host host.Host
+	host      host.Host
+	bootnodes []*peer.AddrInfo
 
 	cancel context.CancelFunc
 	eg     errgroup.Group
@@ -85,6 +87,18 @@ func (b *Bootstrap) run(ctx context.Context, sub event.Subscription, emitter eve
 		peers    = map[peer.ID]network.Direction{}
 	)
 	for {
+		for _, boot := range b.bootnodes {
+			if _, exist := peers[boot.ID]; exist {
+				continue
+			}
+			info := *boot
+			b.eg.Go(func() error {
+				if err := b.host.Connect(ctx, info); err != nil {
+					b.logger.Warning("bootnode is not reachable", log.Stringer("bootnode", info), log.Err(err))
+				}
+				return nil
+			})
+		}
 		select {
 		case evt := <-sub.Out():
 			hs, ok := evt.(handshake.EventHandshakeComplete)

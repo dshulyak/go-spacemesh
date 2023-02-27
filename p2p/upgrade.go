@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/log"
@@ -81,7 +82,15 @@ func Upgrade(h host.Host, genesisID types.Hash20, opts ...Opt) (*Host, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize pubsub: %w", err)
 	}
-	if fh.bootstrap, err = bootstrap.NewBootstrap(fh.logger, fh); err != nil {
+	bootnodes := make([]*peer.AddrInfo, 0, len(fh.cfg.Bootnodes))
+	for _, p := range fh.cfg.Bootnodes {
+		addr, err := peer.AddrInfoFromString(p)
+		if err != nil {
+			return nil, fmt.Errorf("can't create peer addr from %s: %w", p, err)
+		}
+		bootnodes = append(bootnodes, addr)
+	}
+	if fh.bootstrap, err = bootstrap.NewBootstrap(fh.logger, fh, bootnodes); err != nil {
 		return nil, fmt.Errorf("failed to initiliaze bootstrap: %w", err)
 	}
 	fh.PubSub = router

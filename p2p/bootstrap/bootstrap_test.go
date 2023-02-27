@@ -24,7 +24,7 @@ func TestBootstrapEmitEvents(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { sub.Close() })
 
-	boot, err := NewBootstrap(logtest.New(t), h)
+	boot, err := NewBootstrap(logtest.New(t), h, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = boot.Stop() })
 
