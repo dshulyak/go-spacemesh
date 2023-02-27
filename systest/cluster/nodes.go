@@ -603,6 +603,10 @@ func PoetRestListen(port int) DeploymentFlag {
 	return DeploymentFlag{Name: "--restlisten", Value: fmt.Sprintf("0.0.0.0:%d", port)}
 }
 
-func StartSmeshing(start bool) DeploymentFlag {
-	return DeploymentFlag{Name: "--smeshing-start", Value: fmt.Sprintf("%v", start)}
+func StartSmeshing() DeploymentFlag {
+	return DeploymentFlag{Name: "--smeshing-start", Value: "true"}
+}
+
+func IsBootnode() DeploymentFlag {
+	return DeploymentFlag{Name: "--smeshing-start", Value: "true"}
 }

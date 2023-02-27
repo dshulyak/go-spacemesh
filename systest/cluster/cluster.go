@@ -334,11 +334,10 @@ func (c *Cluster) AddBootnodes(cctx *testcontext.Context, n int) error {
 	if err := c.persist(cctx); err != nil {
 		return err
 	}
-	flags := []DeploymentFlag{}
+	flags := []DeploymentFlag{IsBootnode()}
 	for _, flag := range c.smesherFlags {
 		flags = append(flags, flag)
 	}
-	flags = append(flags, StartSmeshing(false))
 	clients, err := deployNodes(cctx, bootnodesPrefix, c.bootnodes, c.bootnodes+n, flags)
 	if err != nil {
 		return err
@@ -359,16 +358,14 @@ func (c *Cluster) AddSmeshers(tctx *testcontext.Context, n int) error {
 	if err := c.persist(tctx); err != nil {
 		return err
 	}
-	flags := []DeploymentFlag{}
-	for _, flag := range c.smesherFlags {
-		flags = append(flags, flag)
-	}
 	endpoints, err := extractP2PEndpoints(tctx, c.clients[:c.bootnodes])
 	if err != nil {
 		return fmt.Errorf("extracing p2p endpoints %w", err)
 	}
-	flags = append(flags, Bootnodes(endpoints...))
-	flags = append(flags, StartSmeshing(true))
+	flags := []DeploymentFlag{Bootnodes(endpoints...), StartSmeshing()}
+	for _, flag := range c.smesherFlags {
+		flags = append(flags, flag)
+	}
 	clients, err := deployNodes(tctx, smesherPrefix, c.nextSmesher(), c.nextSmesher()+n, flags)
 	if err != nil {
 		return err
