@@ -61,8 +61,8 @@ type GossipCollector struct {
 	}
 }
 
-// NewGoSIPCollector creates a new GossipCollector.
-func NewGoSIPCollector() *GossipCollector {
+// NewGossipCollector creates a new GossipCollector.
+func NewGossipCollector() *GossipCollector {
 	return &GossipCollector{
 		peers: struct {
 			sync.Mutex
