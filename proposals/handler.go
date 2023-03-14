@@ -43,6 +43,10 @@ var (
 	errMaliciousBallot       = errors.New("malicious ballot")
 )
 
+type layerClock interface {
+	LayerToTime(types.LayerID) time.Time
+}
+
 // Handler processes Proposal from gossip and, if deems it valid, propagates it to peers.
 type Handler struct {
 	logger log.Log
@@ -55,6 +59,7 @@ type Handler struct {
 	mesh      meshProvider
 	validator eligibilityValidator
 	decoder   ballotDecoder
+	clock     layerClock
 }
 
 // Config defines configuration for the handler.
@@ -94,6 +99,12 @@ func WithLogger(logger log.Log) Opt {
 func WithConfig(cfg Config) Opt {
 	return func(h *Handler) {
 		h.cfg = cfg
+	}
+}
+
+func WithNodeClock(clock layerClock) Opt {
+	return func(h *Handler) {
+		h.clock = clock
 	}
 }
 
@@ -282,6 +293,9 @@ func (h *Handler) handleProposalData(ctx context.Context, peer p2p.Peer, data []
 	proposalDuration.WithLabelValues(linkTxs).Observe(float64(time.Since(t6)))
 
 	reportProposalMetrics(&p)
+	if h.clock != nil {
+		proposalLatency.Observe(float64(time.Since(h.clock.LayerToTime(p.Layer)).Milliseconds()))
+	}
 
 	// broadcast malfeasance proof last as the verification of the proof will take place
 	// in the same goroutine

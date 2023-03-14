@@ -569,6 +569,7 @@ func (app *App) initServices(
 			MaxExceptions:  trtlCfg.MaxExceptions,
 			Hdist:          trtlCfg.Hdist,
 		}),
+		proposals.WithNodeClock(clock),
 	)
 
 	blockHandler := blocks.NewHandler(fetcherWrapped, app.db, msh,

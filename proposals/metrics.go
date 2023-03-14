@@ -82,3 +82,11 @@ var (
 		prometheus.ExponentialBuckets(1_000_000, 4, 10),
 	)
 )
+
+var proposalLatency = metrics.NewHistogramWithBuckets(
+	"proposal_latency_ms",
+	subsystem,
+	"Observed latency for proposal message",
+	[]string{},
+	prometheus.ExponentialBuckets(50, 2, 20),
+).WithLabelValues()
