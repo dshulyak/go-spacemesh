@@ -599,7 +599,7 @@ func minPeers(size int) int {
 	}
 	other := size / 3
 	if other > 100 {
-		return 100
+		return 50
 	}
 	return other
 }

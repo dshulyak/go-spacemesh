@@ -1,11 +1,11 @@
 {
     "preset": "fastnet",
     "main": {
-        "layers-per-epoch": 10,
+        "layers-per-epoch": 40,
         "layer-duration": "5m"
     },
     "poet": {
-        "phase-shift": "25m",
+        "phase-shift": "60m",
         "cycle-gap": "15m",
         "grace-period": "1m"
     },
