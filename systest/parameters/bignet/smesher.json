@@ -1,13 +1,13 @@
 {
     "preset": "fastnet",
     "main": {
-        "layers-per-epoch": 40,
+        "layers-per-epoch": 10,
         "layer-duration": "5m"
     },
     "poet": {
-        "phase-shift": "100m",
-        "cycle-gap": "5m",
-        "grace-period": "30s"
+        "phase-shift": "25m",
+        "cycle-gap": "15m",
+        "grace-period": "1m"
     },
     "tortoise": {
         "tortoise-zdist": 4,
