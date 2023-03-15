@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -211,11 +210,6 @@ func (db *Database) Close() error {
 }
 
 func exec(conn *sqlite.Conn, query string, encoder Encoder, decoder Decoder) (int, error) {
-	start := time.Now()
-	defer func() {
-		queryDuration.WithLabelValues(query).Observe(float64(time.Since(start)))
-	}()
-
 	stmt, err := conn.Prepare(query)
 	if err != nil {
 		return 0, fmt.Errorf("prepare %s: %w", query, err)
