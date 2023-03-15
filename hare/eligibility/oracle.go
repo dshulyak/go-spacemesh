@@ -530,6 +530,10 @@ func (o *Oracle) actives(ctx context.Context, targetLayer types.LayerID) (map[ty
 		logger.With().Warning("no hare active set for layer range, reading tortoise set for epoch instead",
 			targetLayer.GetEpoch())
 	}
+	set, exist := o.activesCache.Get(safeLayerStart.GetEpoch())
+	if exist {
+		return set.(map[types.NodeID]uint64), nil
+	}
 	atxids, err := atxs.GetIDsByEpoch(o.cdb, targetLayer.GetEpoch()-1)
 	if err != nil {
 		return nil, fmt.Errorf("can't get atxs for an epoch %d: %w", targetLayer.GetEpoch()-1, err)
@@ -547,6 +551,7 @@ func (o *Oracle) actives(ctx context.Context, targetLayer types.LayerID) (map[ty
 		}
 		activeMap[atxHeader.NodeID] = atxHeader.GetWeight()
 	}
+	o.activesCache.Add(safeLayerStart.GetEpoch(), activeMap)
 	logger.With().Debug("got tortoise active set", log.Int("count", len(activeMap)))
 	return activeMap, nil
 }

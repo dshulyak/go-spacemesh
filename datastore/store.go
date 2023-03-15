@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	atxHdrCacheSize      = 600
+	atxHdrCacheSize      = 10000
 	malfeasanceCacheSize = 1000
 )
 
