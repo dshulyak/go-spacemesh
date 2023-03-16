@@ -12,6 +12,6 @@ spec:
         values: ["boot", "smesher"]
   direction: to
   delay:
-    latency: "50ms"
+    latency: "400ms"
     correlation: "0"
-    jitter: "50ms"
+    jitter: "10ms"

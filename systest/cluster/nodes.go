@@ -94,10 +94,6 @@ const (
 	buckets = 10
 )
 
-func persistentVolumeClaim(podname string) string {
-	return fmt.Sprintf("%s-%s", persistentVolumeName, podname)
-}
-
 const (
 	prometheusScrapePort = 9216
 	phlareScrapePort     = 6060
@@ -362,11 +358,6 @@ func deleteNode(ctx *testcontext.Context, podname string) error {
 		Delete(ctx, setname, apimetav1.DeleteOptions{}); err != nil {
 		return err
 	}
-	pvcname := persistentVolumeClaim(podname)
-	if err := ctx.Client.CoreV1().PersistentVolumeClaims(ctx.Namespace).Delete(ctx,
-		pvcname, apimetav1.DeleteOptions{}); err != nil {
-		return fmt.Errorf("failed deleting pvc %s: %w", pvcname, err)
-	}
 	return nil
 }
 
@@ -405,14 +396,6 @@ func deployNode(ctx *testcontext.Context, name string, labels map[string]string,
 			WithPodManagementPolicy(apiappsv1.ParallelPodManagement).
 			WithReplicas(1).
 			WithServiceName(*svc.Name).
-			WithVolumeClaimTemplates(
-				corev1.PersistentVolumeClaim(persistentVolumeName, ctx.Namespace).
-					WithSpec(corev1.PersistentVolumeClaimSpec().
-						WithAccessModes(apiv1.ReadWriteOnce).
-						WithStorageClassName(ctx.Storage.Class).
-						WithResources(corev1.ResourceRequirements().
-							WithRequests(apiv1.ResourceList{apiv1.ResourceStorage: resource.MustParse(ctx.Storage.Size)}))),
-			).
 			WithSelector(metav1.LabelSelector().WithMatchLabels(labels)).
 			WithTemplate(corev1.PodTemplateSpec().
 				WithAnnotations(
@@ -426,9 +409,12 @@ func deployNode(ctx *testcontext.Context, name string, labels map[string]string,
 				WithLabels(labels).
 				WithSpec(corev1.PodSpec().
 					WithNodeSelector(ctx.NodeSelector).
-					WithVolumes(corev1.Volume().
-						WithName("config").
-						WithConfigMap(corev1.ConfigMapVolumeSource().WithName(spacemeshConfigMapName)),
+					WithVolumes(
+						corev1.Volume().WithName("config").
+							WithConfigMap(corev1.ConfigMapVolumeSource().WithName(spacemeshConfigMapName)),
+						corev1.Volume().WithName("data").
+							WithEmptyDir(corev1.EmptyDirVolumeSource().
+								WithSizeLimit(resource.MustParse(ctx.Storage.Size))),
 					).
 					WithContainers(corev1.Container().
 						WithName("smesher").
