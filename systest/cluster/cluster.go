@@ -37,12 +37,8 @@ const (
 	smesherFlags = "smesherflags"
 )
 
-func setName(podname string) string {
-	return podname[:len(podname)-2]
-}
-
-func headlessSvc(setname string) string {
-	return setname + "-headless"
+func svcName(podname string) string {
+	return podname
 }
 
 // MakePoetEndpoint generate a poet endpoint for the ith instance.
@@ -303,7 +299,7 @@ func (c *Cluster) AddPoet(cctx *testcontext.Context) error {
 	}
 	flags := maps.Values(c.poetFlags)
 	for _, bootnode := range c.clients[:c.bootnodes] {
-		flags = append(flags, Gateway(fmt.Sprintf("dns:///%s.%s:9092", bootnode.Name, headlessSvc(setName(bootnode.Name)))))
+		flags = append(flags, Gateway(fmt.Sprintf("dns:///%s.%s:9092", bootnode.Name, svcName(bootnode.Name))))
 	}
 
 	id := createPoetIdentifier(c.firstFreePoetId())

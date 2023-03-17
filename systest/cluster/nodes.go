@@ -12,15 +12,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	apiappsv1 "k8s.io/api/apps/v1"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	apimetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/watch"
-	appsv1 "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1 "k8s.io/client-go/applyconfigurations/core/v1"
-	metav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 
 	"github.com/spacemeshos/go-spacemesh/systest/parameters"
 	"github.com/spacemeshos/go-spacemesh/systest/parameters/fastnet"
@@ -108,7 +105,6 @@ type Node struct {
 	// Identifier let's uniquely select the k8s resource
 	Identifier string
 
-	Created   time.Time
 	Restarted time.Time
 }
 
@@ -241,14 +237,6 @@ func deletePoet(ctx *testcontext.Context, id string) error {
 	return errSvc
 }
 
-func getStatefulSet(ctx *testcontext.Context, name string) (*apiappsv1.StatefulSet, error) {
-	set, err := ctx.Client.AppsV1().StatefulSets(ctx.Namespace).Get(ctx, name, apimetav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return set, nil
-}
-
 // areContainersReady checks if all containers are ready in pod.
 func areContainersReady(pod *apiv1.Pod) bool {
 	for _, c := range pod.Status.ContainerStatuses {
@@ -310,6 +298,8 @@ func deployNodes(ctx *testcontext.Context, name string, from, to int, flags []De
 	var (
 		eg      errgroup.Group
 		clients = make(chan *NodeClient, to-from)
+		// rate limit spawning goroutines and calls to k8s
+		batch = make(chan struct{}, 1000)
 	)
 	for i := from; i < to; i++ {
 		i := i
@@ -319,12 +309,13 @@ func deployNodes(ctx *testcontext.Context, name string, from, to int, flags []De
 			finalFlags = append(finalFlags, PoetEndpoint(MakePoetEndpoint(idx)))
 		}
 
+		batch <- struct{}{}
 		eg.Go(func() error {
-			setname := fmt.Sprintf("%s-%d", name, i)
-			podname := fmt.Sprintf("%s-0", setname)
+			defer func() { <-batch }()
+			podname := fmt.Sprintf("%s-%d", name, i)
 			labels := nodeLabels(name, podname)
 			labels["bucket"] = strconv.Itoa(i % buckets)
-			if err := deployNode(ctx, setname, labels, finalFlags); err != nil {
+			if err := deployNode(ctx, podname, labels, finalFlags); err != nil {
 				return err
 			}
 			node, err := waitNode(ctx, podname, Smesher)
@@ -333,6 +324,7 @@ func deployNodes(ctx *testcontext.Context, name string, from, to int, flags []De
 			}
 			clients <- node
 			return nil
+
 		})
 	}
 	if err := eg.Wait(); err != nil {
@@ -350,33 +342,17 @@ func deployNodes(ctx *testcontext.Context, name string, from, to int, flags []De
 }
 
 func deleteNode(ctx *testcontext.Context, podname string) error {
-	setname := setName(podname)
-	if err := ctx.Client.CoreV1().ConfigMaps(ctx.Namespace).Delete(ctx, setname, apimetav1.DeleteOptions{}); err != nil {
-		return fmt.Errorf("deleting configmap %s/%s: %w", ctx.Namespace, setname, err)
+	if err := ctx.Client.CoreV1().ConfigMaps(ctx.Namespace).Delete(ctx, podname, apimetav1.DeleteOptions{}); err != nil {
+		return fmt.Errorf("deleting configmap %s/%s: %w", ctx.Namespace, podname, err)
 	}
-	if err := ctx.Client.AppsV1().StatefulSets(ctx.Namespace).
-		Delete(ctx, setname, apimetav1.DeleteOptions{}); err != nil {
+	if err := ctx.Client.CoreV1().Pods(ctx.Namespace).
+		Delete(ctx, podname, apimetav1.DeleteOptions{}); err != nil {
 		return err
 	}
 	return nil
 }
 
 func deployNode(ctx *testcontext.Context, name string, labels map[string]string, flags []DeploymentFlag) error {
-	svc := corev1.Service(headlessSvc(name), ctx.Namespace).
-		WithLabels(labels).
-		WithSpec(corev1.ServiceSpec().
-			WithSelector(labels).
-			WithPorts(
-				corev1.ServicePort().WithName("grpc").WithPort(9092).WithProtocol("TCP"),
-			).
-			WithClusterIP("None"),
-		)
-
-	_, err := ctx.Client.CoreV1().Services(ctx.Namespace).Apply(ctx, svc, apimetav1.ApplyOptions{FieldManager: "test"})
-	if err != nil {
-		return fmt.Errorf("apply headless service: %w", err)
-	}
-
 	cmd := []string{
 		"/bin/go-spacemesh",
 		"-c=" + configDir + attachedSmesherConfig,
@@ -390,67 +366,58 @@ func deployNode(ctx *testcontext.Context, name string, labels map[string]string,
 	for _, flag := range flags {
 		cmd = append(cmd, flag.Flag())
 	}
-	sset := appsv1.StatefulSet(name, ctx.Namespace).
-		WithSpec(appsv1.StatefulSetSpec().
-			WithUpdateStrategy(appsv1.StatefulSetUpdateStrategy().WithType(apiappsv1.OnDeleteStatefulSetStrategyType)).
-			WithPodManagementPolicy(apiappsv1.ParallelPodManagement).
-			WithReplicas(1).
-			WithServiceName(*svc.Name).
-			WithSelector(metav1.LabelSelector().WithMatchLabels(labels)).
-			WithTemplate(corev1.PodTemplateSpec().
-				WithAnnotations(
-					map[string]string{
-						"prometheus.io/port":        strconv.Itoa(prometheusScrapePort),
-						"prometheus.io/scrape":      "true",
-						"phlare.grafana.com/port":   strconv.Itoa(phlareScrapePort),
-						"phlare.grafana.com/scrape": "true",
-					},
+	pod := corev1.Pod(name, ctx.Namespace).
+		WithAnnotations(
+			map[string]string{
+				"prometheus.io/port":        strconv.Itoa(prometheusScrapePort),
+				"prometheus.io/scrape":      "true",
+				"phlare.grafana.com/port":   strconv.Itoa(phlareScrapePort),
+				"phlare.grafana.com/scrape": "true",
+			},
+		).
+		WithLabels(labels).
+		WithSpec(corev1.PodSpec().
+			WithNodeSelector(ctx.NodeSelector).
+			WithVolumes(
+				corev1.Volume().WithName("config").
+					WithConfigMap(corev1.ConfigMapVolumeSource().WithName(spacemeshConfigMapName)),
+				corev1.Volume().WithName("data").
+					WithEmptyDir(corev1.EmptyDirVolumeSource().
+						WithSizeLimit(resource.MustParse(ctx.Storage.Size))),
+			).
+			WithContainers(corev1.Container().
+				WithName("smesher").
+				WithImage(ctx.Image).
+				WithImagePullPolicy(apiv1.PullIfNotPresent).
+				WithPorts(
+					corev1.ContainerPort().WithContainerPort(7513).WithName("p2p"),
+					corev1.ContainerPort().WithContainerPort(9092).WithName("grpc"),
+					corev1.ContainerPort().WithContainerPort(prometheusScrapePort).WithName("prometheus"),
+					corev1.ContainerPort().WithContainerPort(phlareScrapePort).WithName("pprof"),
 				).
-				WithLabels(labels).
-				WithSpec(corev1.PodSpec().
-					WithNodeSelector(ctx.NodeSelector).
-					WithVolumes(
-						corev1.Volume().WithName("config").
-							WithConfigMap(corev1.ConfigMapVolumeSource().WithName(spacemeshConfigMapName)),
-						corev1.Volume().WithName("data").
-							WithEmptyDir(corev1.EmptyDirVolumeSource().
-								WithSizeLimit(resource.MustParse(ctx.Storage.Size))),
-					).
-					WithContainers(corev1.Container().
-						WithName("smesher").
-						WithImage(ctx.Image).
-						WithImagePullPolicy(apiv1.PullIfNotPresent).
-						WithPorts(
-							corev1.ContainerPort().WithContainerPort(7513).WithName("p2p"),
-							corev1.ContainerPort().WithContainerPort(9092).WithName("grpc"),
-							corev1.ContainerPort().WithContainerPort(prometheusScrapePort).WithName("prometheus"),
-							corev1.ContainerPort().WithContainerPort(phlareScrapePort).WithName("pprof"),
-						).
-						WithVolumeMounts(
-							corev1.VolumeMount().WithName("data").WithMountPath("/data"),
-							corev1.VolumeMount().WithName("config").WithMountPath(configDir),
-						).
-						WithResources(corev1.ResourceRequirements().
-							WithRequests(smesherResources.Get(ctx.Parameters).Requests).
-							WithLimits(smesherResources.Get(ctx.Parameters).Limits),
-						).
-						WithStartupProbe(
-							corev1.Probe().WithTCPSocket(
-								corev1.TCPSocketAction().WithPort(intstr.FromInt(9092)),
-							).WithInitialDelaySeconds(10).WithPeriodSeconds(10),
-						).
-						WithEnv(
-							corev1.EnvVar().WithName("GOMAXPROCS").WithValue("4"),
-						).
-						WithCommand(cmd...),
-					)),
+				WithVolumeMounts(
+					corev1.VolumeMount().WithName("data").WithMountPath("/data"),
+					corev1.VolumeMount().WithName("config").WithMountPath(configDir),
+				).
+				WithResources(corev1.ResourceRequirements().
+					WithRequests(smesherResources.Get(ctx.Parameters).Requests).
+					WithLimits(smesherResources.Get(ctx.Parameters).Limits),
+				).
+				WithStartupProbe(
+					corev1.Probe().WithTCPSocket(
+						corev1.TCPSocketAction().WithPort(intstr.FromInt(9092)),
+					).WithInitialDelaySeconds(10).WithPeriodSeconds(10),
+				).
+				WithEnv(
+					corev1.EnvVar().WithName("GOMAXPROCS").WithValue("4"),
+				).
+				WithCommand(cmd...),
 			),
 		)
-
-	_, err = ctx.Client.AppsV1().StatefulSets(ctx.Namespace).
-		Apply(ctx, sset, apimetav1.ApplyOptions{FieldManager: "test"})
+	_, err := ctx.Client.CoreV1().Pods(ctx.Namespace).
+		Apply(ctx, pod, apimetav1.ApplyOptions{FieldManager: "test"})
 	if err != nil {
-		return fmt.Errorf("apply statefulset: %w", err)
+		return fmt.Errorf("apply pod %s: %w", name, err)
 	}
 	return nil
 }
@@ -482,17 +449,12 @@ func waitNode(tctx *testcontext.Context, podname string, pt PodType) (*NodeClien
 				},
 			}, nil
 		}
-		set, err := getStatefulSet(tctx, setName(podname))
-		if err != nil {
-			return nil, err
-		}
 		node := Node{
 			Name:       podname,
 			Identifier: pod.Labels["id"],
 			IP:         pod.Status.PodIP,
 			P2P:        7513,
 			GRPC:       9092,
-			Created:    set.CreationTimestamp.Time,
 			Restarted:  pod.CreationTimestamp.Time,
 		}
 		// don't block connection, it is expected that some nodes are unavailable during test
