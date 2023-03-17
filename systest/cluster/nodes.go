@@ -339,6 +339,9 @@ func deployNodes(ctx *testcontext.Context, kind string, from, to int, flags []De
 			if err != nil {
 				return err
 			}
+			if node == nil {
+				return fmt.Errorf("pod was deleted %s", podname)
+			}
 			clients <- node
 			return nil
 
