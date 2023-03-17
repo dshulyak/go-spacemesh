@@ -37,10 +37,6 @@ const (
 	smesherFlags = "smesherflags"
 )
 
-func svcName(podname string) string {
-	return podname
-}
-
 // MakePoetEndpoint generate a poet endpoint for the ith instance.
 func MakePoetEndpoint(ith int) string {
 	return fmt.Sprintf("http://%s:%d", createPoetIdentifier(ith), poetPort)
@@ -299,7 +295,7 @@ func (c *Cluster) AddPoet(cctx *testcontext.Context) error {
 	}
 	flags := maps.Values(c.poetFlags)
 	for _, bootnode := range c.clients[:c.bootnodes] {
-		flags = append(flags, Gateway(fmt.Sprintf("dns:///%s.%s:9092", bootnode.Name, svcName(bootnode.Name))))
+		flags = append(flags, Gateway(fmt.Sprintf("dns:///%s:9092", bootnode.Name)))
 	}
 
 	id := createPoetIdentifier(c.firstFreePoetId())

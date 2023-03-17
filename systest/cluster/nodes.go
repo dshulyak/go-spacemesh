@@ -170,6 +170,23 @@ func deployPoetPod(ctx *testcontext.Context, id string, flags ...DeploymentFlag)
 	return ppod, nil
 }
 
+func deploySmesherSvc(ctx *testcontext.Context, name string, labels map[string]string) error {
+	svc := corev1.Service(name, ctx.Namespace).
+		WithLabels(labels).
+		WithSpec(corev1.ServiceSpec().
+			WithSelector(labels).
+			WithPorts(
+				corev1.ServicePort().WithName("grpc").WithPort(9092).WithProtocol("TCP"),
+			).
+			WithClusterIP("None"),
+		)
+	_, err := ctx.Client.CoreV1().Services(ctx.Namespace).Apply(ctx, svc, apimetav1.ApplyOptions{FieldManager: "test"})
+	if err != nil {
+		return fmt.Errorf("apply headless service: %w", err)
+	}
+	return nil
+}
+
 func deployPoetSvc(ctx *testcontext.Context, id string) (*apiv1.Service, error) {
 	ctx.Log.Debugw("deploying poet service", "id", id)
 	labels := nodeLabels("poet", id)
@@ -294,7 +311,7 @@ func labelSelector(id string) string {
 	return fmt.Sprintf("id=%s", id)
 }
 
-func deployNodes(ctx *testcontext.Context, name string, from, to int, flags []DeploymentFlag) ([]*NodeClient, error) {
+func deployNodes(ctx *testcontext.Context, kind string, from, to int, flags []DeploymentFlag) ([]*NodeClient, error) {
 	var (
 		eg      errgroup.Group
 		clients = make(chan *NodeClient, to-from)
@@ -312,8 +329,8 @@ func deployNodes(ctx *testcontext.Context, name string, from, to int, flags []De
 		batch <- struct{}{}
 		eg.Go(func() error {
 			defer func() { <-batch }()
-			podname := fmt.Sprintf("%s-%d", name, i)
-			labels := nodeLabels(name, podname)
+			podname := fmt.Sprintf("%s-%d", kind, i)
+			labels := nodeLabels(kind, podname)
 			labels["bucket"] = strconv.Itoa(i % buckets)
 			if err := deployNode(ctx, podname, labels, finalFlags); err != nil {
 				return err
@@ -418,6 +435,9 @@ func deployNode(ctx *testcontext.Context, name string, labels map[string]string,
 		Apply(ctx, pod, apimetav1.ApplyOptions{FieldManager: "test"})
 	if err != nil {
 		return fmt.Errorf("apply pod %s: %w", name, err)
+	}
+	if strings.Contains(name, bootnodesPrefix) {
+		return deploySmesherSvc(ctx, name, labels)
 	}
 	return nil
 }
