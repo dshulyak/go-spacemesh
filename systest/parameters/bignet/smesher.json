@@ -1,11 +1,11 @@
 {
     "preset": "fastnet",
     "main": {
-        "layers-per-epoch": 100,
+        "layers-per-epoch": 200,
         "layer-duration": "2m" 
     },
     "poet": {
-        "phase-shift": "60m",
+        "phase-shift": "20m",
         "cycle-gap": "15m",
         "grace-period": "1m"
     },
@@ -20,13 +20,13 @@
         "hare-committee-size": 200
     },
     "hare-eligibility": {
-        "eligibility-confidence-param": 20
+        "eligibility-confidence-param": 10
     },
     "beacon": {
         "beacon-grace-period-duration": "1m",
         "beacon-proposal-duration": "1m",
         "beacon-first-voting-round-duration": "10m",
-        "beacon-rounds-number": 10,
+        "beacon-rounds-number": 100,
         "beacon-voting-round-duration": "1m",
         "beacon-weak-coin-round-duration": "1m"
     }
