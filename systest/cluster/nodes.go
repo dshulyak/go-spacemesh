@@ -318,8 +318,6 @@ func deployNodes(ctx *testcontext.Context, kind string, from, to int, flags []De
 	var (
 		eg      errgroup.Group
 		clients = make(chan *NodeClient, to-from)
-		// limit spawning goroutines and calls to k8s
-		batch = make(chan struct{}, 1000)
 	)
 	for i := from; i < to; i++ {
 		i := i
@@ -328,9 +326,7 @@ func deployNodes(ctx *testcontext.Context, kind string, from, to int, flags []De
 		for idx := 0; idx < ctx.PoetSize; idx++ {
 			finalFlags = append(finalFlags, PoetEndpoint(MakePoetEndpoint(idx)))
 		}
-		batch <- struct{}{}
 		eg.Go(func() error {
-			defer func() { <-batch }()
 			id := fmt.Sprintf("%s-%d", kind, i)
 			labels := nodeLabels(kind, id)
 			labels["bucket"] = strconv.Itoa(i % buckets)
