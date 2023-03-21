@@ -1,11 +1,11 @@
 {
     "preset": "fastnet",
     "main": {
-        "layers-per-epoch": 200,
+        "layers-per-epoch": 100,
         "layer-duration": "2m" 
     },
     "poet": {
-        "phase-shift": "20m",
+        "phase-shift": "100m",
         "cycle-gap": "15m",
         "grace-period": "1m"
     },
@@ -27,7 +27,7 @@
         "beacon-proposal-duration": "1m",
         "beacon-first-voting-round-duration": "10m",
         "beacon-rounds-number": 100,
-        "beacon-voting-round-duration": "1m",
-        "beacon-weak-coin-round-duration": "1m"
+        "beacon-voting-round-duration": "30s",
+        "beacon-weak-coin-round-duration": "30s"
     }
 }
