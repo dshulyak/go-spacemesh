@@ -191,13 +191,13 @@ func (b *Builder) StartSmeshing(coinbase types.Address, opts PostSetupOpts) erro
 		}
 
 		if err := b.postSetupProvider.StartSession(ctx, opts); err != nil {
+			b.log.With().Error("BOOM", log.Err(err))
 			return err
 		}
 
 		b.run(ctx)
 		return nil
 	})
-
 	return nil
 }
 
