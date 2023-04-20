@@ -323,6 +323,7 @@ func TestDebugPostSetup(t *testing.T) {
 	dir := os.ExpandEnv("METADIR")
 	require.NotEmpty(t, dir)
 	meta, err := initialization.LoadMetadata(dir)
+	require.NoError(t, err)
 	cfg := PostConfig{
 		MinNumUnits:     4,
 		MaxNumUnits:     1000,
