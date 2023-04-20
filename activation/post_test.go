@@ -11,6 +11,7 @@ import (
 
 	"github.com/spacemeshos/post/config"
 	"github.com/spacemeshos/post/initialization"
+	"github.com/spacemeshos/post/oracle"
 	"github.com/spacemeshos/post/shared"
 	"github.com/spacemeshos/post/verifying"
 	"github.com/stretchr/testify/require"
@@ -380,4 +381,19 @@ func TestReadLabel(t *testing.T) {
 	_, err = io.ReadFull(f, buf)
 	require.NoError(t, err)
 	fmt.Println(buf)
+}
+
+func TestComputeLabel(t *testing.T) {
+	dir := os.Getenv("METADIR")
+	require.NotEmpty(t, dir)
+	meta, err := initialization.LoadMetadata(dir)
+	require.NoError(t, err)
+	rst, err := oracle.WorkOracle(
+		oracle.WithPosition(985063564),
+		oracle.WithCommitment(oracle.CommitmentBytes(meta.NodeId, meta.CommitmentAtxId)),
+		oracle.WithScryptParams(config.DefaultLabelParams()),
+		oracle.WithComputeLeaves(false),
+	)
+	require.NoError(t, err)
+	fmt.Println(rst)
 }
