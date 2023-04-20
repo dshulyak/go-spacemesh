@@ -320,7 +320,7 @@ func newTestPostManager(tb testing.TB) *testPostManager {
 }
 
 func TestDebugPostSetup(t *testing.T) {
-	dir := os.ExpandEnv("METADIR")
+	dir := os.Getenv("METADIR")
 	require.NotEmpty(t, dir)
 	meta, err := initialization.LoadMetadata(dir)
 	require.NoError(t, err)
