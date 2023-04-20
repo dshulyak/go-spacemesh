@@ -337,7 +337,7 @@ func TestDebugPostSetup(t *testing.T) {
 		cfg,
 		logtest.New(t),
 		nil,
-		types.ATXID(types.BytesToHash(meta.CommitmentAtxId)),
+		types.ATXID(types.BytesToHash(meta.CommitmentAtxId)), DefaultPostProvingOpts(),
 	)
 	require.NoError(t, err)
 	require.NoError(t, mgr.StartSession(context.Background(), PostSetupOpts{
