@@ -2,7 +2,10 @@ package activation
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -358,4 +361,23 @@ func TestDebugPostSetup(t *testing.T) {
 		m,
 		meta.NumUnits,
 	))
+}
+
+func TestReadLabel(t *testing.T) {
+	// target 985063564
+	// max size 1073741824
+	// max labels 67108864
+	// file with index 14
+	// label index 45539468 at file 14
+	// seek 728631488
+
+	dir := os.Getenv("METADIR")
+	f, err := os.Open(filepath.Join(dir, "postdata_14.bin"))
+	require.NoError(t, err)
+	_, err = f.Seek(728631488, 0)
+	require.NoError(t, err)
+	buf := make([]byte, 16)
+	_, err = io.ReadFull(f, buf)
+	require.NoError(t, err)
+	fmt.Println(buf)
 }
