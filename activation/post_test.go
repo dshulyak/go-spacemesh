@@ -325,6 +325,7 @@ func TestDebugPostSetup(t *testing.T) {
 	meta, err := initialization.LoadMetadata(dir)
 	require.NoError(t, err)
 	cfg := PostConfig{
+		LabelsPerUnit:   536870912,
 		MinNumUnits:     4,
 		MaxNumUnits:     1000,
 		K1:              279,
