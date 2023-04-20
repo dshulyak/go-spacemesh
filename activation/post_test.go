@@ -389,6 +389,7 @@ func TestComputeLabel(t *testing.T) {
 	meta, err := initialization.LoadMetadata(dir)
 	require.NoError(t, err)
 	rst, err := oracle.WorkOracle(
+		oracle.WithComputeProviderID(initialization.CPUProviderID()),
 		oracle.WithPosition(985063564),
 		oracle.WithCommitment(oracle.CommitmentBytes(meta.NodeId, meta.CommitmentAtxId)),
 		oracle.WithScryptParams(config.DefaultLabelParams()),
