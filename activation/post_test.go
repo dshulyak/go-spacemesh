@@ -2,6 +2,7 @@ package activation
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -316,4 +317,43 @@ func newTestPostManager(tb testing.TB) *testPostManager {
 		signer:           sig,
 		cdb:              cdb,
 	}
+}
+
+func TestDebugPostSetup(t *testing.T) {
+	dir := os.ExpandEnv("METADIR")
+	require.NotEmpty(t, dir)
+	meta, err := initialization.LoadMetadata(dir)
+	cfg := PostConfig{
+		MinNumUnits:     4,
+		MaxNumUnits:     1000,
+		K1:              279,
+		K2:              300,
+		K3:              65,
+		K2PowDifficulty: 469112881707866048,
+		K3PowDifficulty: 29244622850649904,
+	}
+	mgr, err := NewPostSetupManager(
+		types.BytesToNodeID(meta.NodeId),
+		cfg,
+		logtest.New(t),
+		nil,
+		types.ATXID(types.BytesToHash(meta.CommitmentAtxId)),
+	)
+	require.NoError(t, err)
+	require.NoError(t, mgr.StartSession(context.Background(), PostSetupOpts{
+		DataDir:     dir,
+		NumUnits:    meta.NumUnits,
+		MaxFileSize: meta.MaxFileSize,
+	}))
+
+	p, m, err := mgr.GenerateProof(context.Background(), shared.ZeroChallenge)
+	require.NoError(t, err)
+	val := NewValidator(nil, cfg)
+	require.NoError(t, val.Post(
+		types.BytesToNodeID(meta.NodeId),
+		types.ATXID(types.BytesToHash(meta.CommitmentAtxId)),
+		p,
+		m,
+		meta.NumUnits,
+	))
 }
