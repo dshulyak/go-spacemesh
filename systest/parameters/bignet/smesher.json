@@ -11,7 +11,7 @@
     },
     "tortoise": {
         "tortoise-zdist": 2,
-        "tortoise-hdist": 10,
+        "tortoise-hdist": 19,
         "tortoise-enable-tracer": true
     },
     "hare": {
