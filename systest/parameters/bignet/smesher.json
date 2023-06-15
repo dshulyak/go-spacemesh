@@ -1,22 +1,23 @@
 {
     "preset": "fastnet",
     "main": {
-        "layers-per-epoch": 200,
-        "layer-duration": "3m"
+        "layers-per-epoch": 20,
+        "layer-duration": "2m"
     },
     "poet": {
-        "phase-shift": "300m",
-        "cycle-gap": "40m",
-        "grace-period": "10m"
+        "phase-shift": "20m",
+        "cycle-gap": "10m",
+        "grace-period": "2m"
     },
     "tortoise": {
-        "tortoise-zdist": 4,
-        "tortoise-hdist": 10
+        "tortoise-zdist": 2,
+        "tortoise-hdist": 10,
+        "tortoise-enable-tracer": true
     },
     "hare": {
-        "hare-wakeup-delta": "25s",
-        "hare-round-duration": "25s",
-        "hare-limit-iterations": 4,
+        "hare-wakeup-delta": "20s",
+        "hare-round-duration": "20s",
+        "hare-limit-iterations": 2,
         "hare-committee-size": 200
     },
     "hare-eligibility": {
@@ -25,8 +26,8 @@
     "beacon": {
         "beacon-grace-period-duration": "1m",
         "beacon-proposal-duration": "1m",
-        "beacon-first-voting-round-duration": "10m",
-        "beacon-rounds-number": 100,
+        "beacon-first-voting-round-duration": "1m",
+        "beacon-rounds-number": 2,
         "beacon-voting-round-duration": "1m",
         "beacon-weak-coin-round-duration": "1m"
     },

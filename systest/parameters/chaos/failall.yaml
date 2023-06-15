@@ -1,0 +1,17 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: fail-all-every-30m
+spec:
+  schedule: "*/30 * * * *"
+  historyLimit: 2
+  type: "PodChaos"
+  podChaos:
+    action: pod-failure
+    mode: all
+    selector:
+      expressionSelectors:
+        - key: app
+          operator: In
+          values: ["boot", "smesher"]
+    duration: "60s"
