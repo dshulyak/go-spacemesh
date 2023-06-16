@@ -43,8 +43,8 @@ func DefaultConfig() Config {
 }
 
 const (
-	outOfSyncThreshold  uint32 = 3 // see notSynced
-	numGossipSyncLayers uint32 = 2 // see gossipSync
+	outOfSyncThreshold  uint32 = 20 // see notSynced
+	numGossipSyncLayers uint32 = 0  // see gossipSync
 )
 
 type syncState uint32
