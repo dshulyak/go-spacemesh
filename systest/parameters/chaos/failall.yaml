@@ -14,4 +14,4 @@ spec:
         - key: app
           operator: In
           values: ["boot", "smesher"]
-    duration: "60s"
+    duration: "30s"
