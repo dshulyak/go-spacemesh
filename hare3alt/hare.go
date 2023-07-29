@@ -7,24 +7,26 @@ import (
 	"time"
 
 	"github.com/benbjohnson/clock"
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/datastore"
 	"github.com/spacemeshos/go-spacemesh/p2p/pubsub"
 	"github.com/spacemeshos/go-spacemesh/signing"
 	"github.com/spacemeshos/go-spacemesh/system"
 	"github.com/spacemeshos/go-spacemesh/timesync"
-	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 const protocolName = "/h3"
 
 type Config struct {
-	Committee       int           `mapstructure:"committee"`
-	Leaders         int           `mapstructure:"leaders"` // leaders are relevant only proposal round
-	IterationsLimit uint8         `mapstructure:"iterations-limit"`
-	PreroundDelay   time.Duration `mapstructure:"preround-delay"` // hare starts preround after this delay
-	RoundDuration   time.Duration `mapstructure:"round-duration"`
+	Committee       int   `mapstructure:"committee"`
+	Leaders         int   `mapstructure:"leaders"`
+	IterationsLimit uint8 `mapstructure:"iterations-limit"`
+	// hare starts preround after this delay. meant to be enough for proposals propagation
+	PreroundDelay time.Duration `mapstructure:"preround-delay"`
+	RoundDuration time.Duration `mapstructure:"round-duration"`
 }
 
 type ConsensusOutput struct {
@@ -39,7 +41,12 @@ type WeakCoinOutput struct {
 
 type instanceInput struct {
 	message message
-	result  chan error
+	result  chan *messageResponse
+}
+
+type messageResponse struct {
+	gossip       bool
+	equivocation *types.HareProof
 }
 
 type instanceInputs struct {
@@ -47,36 +54,35 @@ type instanceInputs struct {
 	inputs chan<- *instanceInput
 }
 
-func (inputs *instanceInputs) submit(msg message) error {
+func (inputs *instanceInputs) submit(msg message) (*messageResponse, error) {
 	input := &instanceInput{
 		message: msg,
-		result:  make(chan error, 1),
+		result:  make(chan *messageResponse, 1),
 	}
 	select {
 	case <-inputs.ctx.Done():
-		return inputs.ctx.Err()
+		return nil, inputs.ctx.Err()
 	case inputs.inputs <- input:
 	}
 	select {
-	case err := <-input.result:
-		return err
+	case resp := <-input.result:
+		return resp, nil
 	case <-inputs.ctx.Done():
-		return inputs.ctx.Err()
+		return nil, inputs.ctx.Err()
 	}
 }
 
 type Hare struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	eg     errgroup.Group
-
+	ctx     context.Context
+	cancel  context.CancelFunc
+	eg      errgroup.Group
 	results chan ConsensusOutput
 	coins   chan WeakCoinOutput
 
-	config Config
-
+	config    Config
 	log       *zap.Logger
 	wallclock clock.Clock
+
 	nodeclock *timesync.NodeClock
 	publisher pubsub.Publisher
 	db        *datastore.CachedDB
@@ -109,82 +115,78 @@ func (h *Hare) Start() {
 	})
 }
 
-func (h *Hare) onLayer(lid types.LayerID) {
+func (h *Hare) onLayer(layer types.LayerID) {
 	if !h.sync.IsSynced(h.ctx) {
 		return
 	}
-	beacon, err := h.beacon.GetBeacon(lid.GetEpoch())
-	if err != nil {
+	beacon, err := h.beacon.GetBeacon(layer.GetEpoch())
+	if err != nil || beacon == types.EmptyBeacon {
 		return
 	}
 	h.mu.Lock()
 	inputs := make(chan *instanceInput, 32)
 	ctx, cancel := context.WithCancel(h.ctx)
-	h.instances[lid] = instanceInputs{
+	h.instances[layer] = instanceInputs{
 		ctx:    ctx,
 		inputs: inputs,
 	}
 	h.mu.Unlock()
 	h.eg.Go(func() error {
-		if err := h.run(lid, beacon, inputs); err != nil {
+		if err := h.run(layer, beacon, inputs); err != nil {
 			h.log.Warn("hare failed",
-				zap.Uint32("lid", lid.Uint32()),
+				zap.Uint32("lid", layer.Uint32()),
 				zap.Error(err),
 			)
 		} else {
 			h.log.Debug("hare terminated",
-				zap.Uint32("lid", lid.Uint32()),
+				zap.Uint32("lid", layer.Uint32()),
 			)
 		}
 		cancel()
 		h.mu.Lock()
-		delete(h.instances, lid)
+		delete(h.instances, layer)
 		h.mu.Unlock()
 		return nil
 	})
 }
 
 func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *instanceInput) error {
-	walltime := h.nodeclock.LayerToTime(layer)
+	walltime := h.nodeclock.LayerToTime(layer).Add(h.config.PreroundDelay)
 	select {
-	case <-h.wallclock.After(h.wallclock.Until(walltime.Add(h.config.PreroundDelay))):
+	case <-h.wallclock.After(h.wallclock.Until(walltime)):
 	case <-h.ctx.Done():
 	}
-	walltime = walltime.Add(h.config.PreroundDelay)
 	proposals, err := h.proposals(layer, beacon)
 	if err != nil {
 		return err
 	}
 	proto := protocol{
-		iteration: 0,
-		round:     preround,
-		layer:     layer,
-		initial:   proposals,
+		initial:        proposals,
+		validProposals: map[types.Hash32]validProposal{},
 	}
-	if msg := proto.active(); msg != nil {
-		h.emitMsg(msg)
-	}
-	if err := h.onOutput(layer, proto.next()); err != nil {
+	if err := h.onOutput(layer, proto.next(true)); err != nil {
 		return err
 	}
+	walltime = walltime.Add(h.config.RoundDuration)
 	for {
 		select {
 		case input := <-inputs:
-			h.log.Debug("received message", zap.Inline(&input.message))
-			input.result <- proto.onMessage(&input.message)
-		case <-h.wallclock.After(h.wallclock.Until(walltime.Add(h.config.RoundDuration))):
-			if msg := proto.active(); msg != nil {
-				h.emitMsg(msg)
-			}
-			out := proto.next()
+			gossip, equivocation := proto.onMessage(&input.message)
+			h.log.Debug("on message",
+				zap.Inline(&input.message),
+				zap.Bool("gossip", gossip),
+			)
+			input.result <- &messageResponse{gossip: gossip, equivocation: equivocation}
+		case <-h.wallclock.After(h.wallclock.Until(walltime)):
+			out := proto.next(true)
 			if err := h.onOutput(layer, out); err != nil {
 				return err
 			}
 			if out.terminated {
 				return nil
 			}
-			if proto.iteration == h.config.IterationsLimit {
-				return fmt.Errorf("hare didn't reach consensus in %d iterations", h.config.IterationsLimit)
+			if proto.iter == h.config.IterationsLimit {
+				return fmt.Errorf("hare failed to reach consensus in %d iterations", h.config.IterationsLimit)
 			}
 			walltime = walltime.Add(h.config.RoundDuration)
 		case <-h.ctx.Done():
@@ -193,12 +195,13 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	}
 }
 
-func (h *Hare) emitMsg(msg *message) {
-	h.log.Debug("emit message", zap.Inline(msg))
-}
+func (h *Hare) gossipMessage(msg *message) {}
 
 func (h *Hare) onOutput(layer types.LayerID, out output) error {
-	h.log.Debug("output", zap.Uint32("lid", layer.Uint32()), zap.Inline(&out))
+	h.log.Debug("round output", zap.Uint32("lid", layer.Uint32()), zap.Inline(&out))
+	if out.message != nil {
+		h.gossipMessage(out.message)
+	}
 	if out.coin != nil {
 		select {
 		case h.coins <- WeakCoinOutput{Layer: layer, Coin: *out.coin}:
