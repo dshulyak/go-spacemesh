@@ -1,4 +1,4 @@
-package hare
+package hare3alt
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/datastore"
+	"github.com/spacemeshos/go-spacemesh/p2p"
 	"github.com/spacemeshos/go-spacemesh/p2p/pubsub"
 	"github.com/spacemeshos/go-spacemesh/signing"
 	"github.com/spacemeshos/go-spacemesh/system"
@@ -21,12 +22,11 @@ import (
 const protocolName = "/h3"
 
 type Config struct {
-	Committee       int   `mapstructure:"committee"`
-	Leaders         int   `mapstructure:"leaders"`
-	IterationsLimit uint8 `mapstructure:"iterations-limit"`
-	// hare starts preround after this delay. meant to be enough for proposals propagation
-	PreroundDelay time.Duration `mapstructure:"preround-delay"`
-	RoundDuration time.Duration `mapstructure:"round-duration"`
+	Committee       uint16        `mapstructure:"committee"`
+	Leaders         int           `mapstructure:"leaders"`
+	IterationsLimit uint8         `mapstructure:"iterations-limit"`
+	PreroundDelay   time.Duration `mapstructure:"preround-delay"`
+	RoundDuration   time.Duration `mapstructure:"round-duration"`
 }
 
 type ConsensusOutput struct {
@@ -40,7 +40,7 @@ type WeakCoinOutput struct {
 }
 
 type instanceInput struct {
-	message message
+	message *message
 	result  chan *messageResponse
 }
 
@@ -54,7 +54,7 @@ type instanceInputs struct {
 	inputs chan<- *instanceInput
 }
 
-func (inputs *instanceInputs) submit(msg message) (*messageResponse, error) {
+func (inputs *instanceInputs) submit(msg *message) (*messageResponse, error) {
 	input := &instanceInput{
 		message: msg,
 		result:  make(chan *messageResponse, 1),
@@ -84,9 +84,10 @@ type Hare struct {
 	wallclock clock.Clock
 
 	nodeclock *timesync.NodeClock
-	publisher pubsub.Publisher
+	pubsub    pubsub.PublishSubsciber
 	db        *datastore.CachedDB
 	signer    *signing.EdSigner
+	oracle    *LegacyOracle
 	sync      system.SyncStateProvider
 	beacon    system.BeaconGetter
 
@@ -102,8 +103,44 @@ func (h *Hare) Coins() <-chan WeakCoinOutput {
 	return h.coins
 }
 
+func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
+	msg, err := decodeMessage(buf)
+	if err != nil {
+		return err
+	}
+	h.mu.Lock()
+	instance, registered := h.instances[msg.layer]
+	h.mu.Unlock()
+	if !registered {
+		return fmt.Errorf("layer %d not registered", msg.layer)
+	}
+
+	// check signature and store message hash
+	if err := h.oracle.validate(msg); err != nil {
+		return err
+	}
+	if malicious, err := h.db.IsMalicious(msg.sender); err != nil {
+		return fmt.Errorf("database error %s", err.Error())
+	} else {
+		msg.malicious = malicious
+	}
+	resp, err := instance.submit(msg)
+	if err != nil {
+		return err
+	}
+	if resp.equivocation != nil {
+		// TODO(dshulyak) save and gossip equivocation
+		_ = resp.equivocation
+	}
+	if !resp.gossip {
+		return fmt.Errorf("dropped by graded gossip")
+	}
+	return nil
+}
+
 func (h *Hare) Start() {
 	h.eg.Go(func() error {
+		h.pubsub.Register(protocolName, h.handler)
 		for next := h.nodeclock.CurrentLayer() + 1; ; next++ {
 			select {
 			case <-h.nodeclock.AwaitLayer(next):
@@ -151,6 +188,9 @@ func (h *Hare) onLayer(layer types.LayerID) {
 }
 
 func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *instanceInput) error {
+	// implementation needs to load a lot of data from disk
+	// we do it before preround starts, so that it can have some slack time
+	vrf := h.oracle.active(h.signer.NodeID(), layer, iterround{round: preround})
 	walltime := h.nodeclock.LayerToTime(layer).Add(h.config.PreroundDelay)
 	select {
 	case <-h.wallclock.After(h.wallclock.Until(walltime)):
@@ -160,26 +200,24 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	if err != nil {
 		return err
 	}
-	proto := protocol{
-		initial:        proposals,
-		validProposals: map[types.Hash32]validProposal{},
-	}
-	if err := h.onOutput(layer, proto.next(true)); err != nil {
+	proto := newProtocol(proposals, h.config.Committee/2+1)
+	if err := h.onOutput(layer, proto.next(vrf != nil), vrf); err != nil {
 		return err
 	}
 	walltime = walltime.Add(h.config.RoundDuration)
 	for {
 		select {
 		case input := <-inputs:
-			gossip, equivocation := proto.onMessage(&input.message)
+			gossip, equivocation := proto.onMessage(input.message)
 			h.log.Debug("on message",
-				zap.Inline(&input.message),
+				zap.Inline(input.message),
 				zap.Bool("gossip", gossip),
 			)
 			input.result <- &messageResponse{gossip: gossip, equivocation: equivocation}
 		case <-h.wallclock.After(h.wallclock.Until(walltime)):
-			out := proto.next(true)
-			if err := h.onOutput(layer, out); err != nil {
+			vrf := h.oracle.active(h.signer.NodeID(), layer, proto.iterround)
+			out := proto.next(vrf != nil)
+			if err := h.onOutput(layer, out, vrf); err != nil {
 				return err
 			}
 			if out.terminated {
@@ -197,9 +235,18 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 
 func (h *Hare) gossipMessage(msg *message) {}
 
-func (h *Hare) onOutput(layer types.LayerID, out output) error {
-	h.log.Debug("round output", zap.Uint32("lid", layer.Uint32()), zap.Inline(&out))
+func (h *Hare) onOutput(layer types.LayerID, out output, vrf *proof) error {
+	h.log.Debug("round output",
+		zap.Uint32("lid", layer.Uint32()),
+		zap.Inline(&out),
+		zap.Bool("active", vrf != nil),
+	)
 	if out.message != nil {
+		if vrf == nil {
+			panic("inconsistent state")
+		}
+		out.message.eligibilities = vrf.eligibilities
+		out.message.vrf = vrf.vrf
 		h.gossipMessage(out.message)
 	}
 	if out.coin != nil {
