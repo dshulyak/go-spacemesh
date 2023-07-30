@@ -2,7 +2,9 @@ package hare3alt
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -15,6 +17,9 @@ import (
 	"github.com/spacemeshos/go-spacemesh/p2p"
 	"github.com/spacemeshos/go-spacemesh/p2p/pubsub"
 	"github.com/spacemeshos/go-spacemesh/signing"
+	"github.com/spacemeshos/go-spacemesh/sql"
+	"github.com/spacemeshos/go-spacemesh/sql/ballots"
+	"github.com/spacemeshos/go-spacemesh/sql/proposals"
 	"github.com/spacemeshos/go-spacemesh/system"
 	"github.com/spacemeshos/go-spacemesh/timesync"
 )
@@ -22,6 +27,8 @@ import (
 const protocolName = "/h3"
 
 type Config struct {
+	Enable          bool          `mapstructure:"enable"`
+	EnableAfter     types.LayerID `mapstructure:"enable-layer"`
 	Committee       uint16        `mapstructure:"committee"`
 	Leaders         int           `mapstructure:"leaders"`
 	IterationsLimit uint8         `mapstructure:"iterations-limit"`
@@ -83,13 +90,14 @@ type Hare struct {
 	log       *zap.Logger
 	wallclock clock.Clock
 
-	nodeclock *timesync.NodeClock
-	pubsub    pubsub.PublishSubsciber
-	db        *datastore.CachedDB
-	signer    *signing.EdSigner
-	oracle    *LegacyOracle
-	sync      system.SyncStateProvider
-	beacon    system.BeaconGetter
+	nodeclock  *timesync.NodeClock
+	pubsub     pubsub.PublishSubsciber
+	db         *datastore.CachedDB
+	edVerifier *signing.EdVerifier
+	signer     *signing.EdSigner
+	oracle     *LegacyOracle
+	sync       system.SyncStateProvider
+	beacon     system.BeaconGetter
 
 	mu        sync.Mutex
 	instances map[types.LayerID]instanceInputs
@@ -114,8 +122,9 @@ func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 	if !registered {
 		return fmt.Errorf("layer %d not registered", msg.layer)
 	}
-
-	// check signature and store message hash
+	if !h.edVerifier.Verify(signing.HARE, msg.sender, msg.signedBytes(), msg.signature) {
+		return fmt.Errorf("%w: invalid signature", pubsub.ErrValidationReject)
+	}
 	if err := h.oracle.validate(msg); err != nil {
 		return err
 	}
@@ -141,7 +150,8 @@ func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 func (h *Hare) Start() {
 	h.eg.Go(func() error {
 		h.pubsub.Register(protocolName, h.handler)
-		for next := h.nodeclock.CurrentLayer() + 1; ; next++ {
+		enabled := types.MaxLayer(h.nodeclock.CurrentLayer(), h.config.EnableAfter)
+		for next := enabled + 1; ; next++ {
 			select {
 			case <-h.nodeclock.AwaitLayer(next):
 				h.onLayer(next)
@@ -188,17 +198,19 @@ func (h *Hare) onLayer(layer types.LayerID) {
 }
 
 func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *instanceInput) error {
-	// implementation needs to load a lot of data from disk
-	// we do it before preround starts, so that it can have some slack time
+	// oracle may load non-negligible amount of data from disk
+	// we do it before preround starts, so that load can have some slack time
+	// before it needs to be used in validation
 	vrf := h.oracle.active(h.signer.NodeID(), layer, iterround{round: preround})
 	walltime := h.nodeclock.LayerToTime(layer).Add(h.config.PreroundDelay)
 	select {
 	case <-h.wallclock.After(h.wallclock.Until(walltime)):
 	case <-h.ctx.Done():
 	}
-	proposals, err := h.proposals(layer, beacon)
-	if err != nil {
-		return err
+	var proposals []types.ProposalID
+	// initial set doesn't matter if node is not active in preround
+	if vrf != nil {
+		proposals = h.proposals(layer, beacon)
 	}
 	proto := newProtocol(proposals, h.config.Committee/2+1)
 	if err := h.onOutput(layer, proto.next(vrf != nil), vrf); err != nil {
@@ -224,7 +236,8 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 				return nil
 			}
 			if proto.iter == h.config.IterationsLimit {
-				return fmt.Errorf("hare failed to reach consensus in %d iterations", h.config.IterationsLimit)
+				return fmt.Errorf("hare failed to reach consensus in %d iterations",
+					h.config.IterationsLimit)
 			}
 			walltime = walltime.Add(h.config.RoundDuration)
 		case <-h.ctx.Done():
@@ -232,8 +245,6 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 		}
 	}
 }
-
-func (h *Hare) gossipMessage(msg *message) {}
 
 func (h *Hare) onOutput(layer types.LayerID, out output, vrf *proof) error {
 	h.log.Debug("round output",
@@ -247,7 +258,11 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *proof) error {
 		}
 		out.message.eligibilities = vrf.eligibilities
 		out.message.vrf = vrf.vrf
-		h.gossipMessage(out.message)
+		if err := h.pubsub.Publish(
+			h.ctx, protocolName,
+			encodeWithSignature(out.message, h.signer)); err != nil {
+			h.log.Error("failed to publish", zap.Inline(out.message))
+		}
 	}
 	if out.coin != nil {
 		select {
@@ -266,18 +281,96 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *proof) error {
 	return nil
 }
 
-func (h *Hare) proposals(lid types.LayerID, beacon types.Beacon) ([]types.ProposalID, error) {
-	return nil, nil
+func (h *Hare) proposals(lid types.LayerID, epochBeacon types.Beacon) []types.ProposalID {
+	props, err := proposals.GetByLayer(h.db, lid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNotFound) {
+			h.log.Warn("no proposals found for hare, using empty set",
+				zap.Uint32("lid", lid.Uint32()), zap.Error(err))
+		} else {
+			h.log.Error("failed to get proposals for hare",
+				zap.Uint32("lid", lid.Uint32()), zap.Error(err))
+		}
+		return []types.ProposalID{}
+	}
+
+	var (
+		beacon        types.Beacon
+		result        []types.ProposalID
+		ownHdr        *types.ActivationTxHeader
+		ownTickHeight = uint64(math.MaxUint64)
+	)
+
+	ownHdr, err = h.db.GetEpochAtx(lid.GetEpoch()-1, h.signer.NodeID())
+	if err != nil && !errors.Is(err, sql.ErrNotFound) {
+		return []types.ProposalID{}
+	}
+	if ownHdr != nil {
+		ownTickHeight = ownHdr.TickHeight()
+	}
+	atxs := map[types.ATXID]int{}
+	for _, p := range props {
+		atxs[p.AtxID]++
+	}
+	for _, p := range props {
+		if p.IsMalicious() {
+			h.log.Warn("not voting on proposal from malicious identity",
+				zap.Stringer("id", p.ID()),
+			)
+			continue
+		}
+		if n := atxs[p.AtxID]; n > 1 {
+			h.log.Warn("proposal with same atx added several times in the recorded set",
+				zap.Int("n", n),
+				zap.Stringer("id", p.ID()),
+				zap.Stringer("atxid", p.AtxID),
+			)
+			continue
+		}
+		if ownHdr != nil {
+			hdr, err := h.db.GetAtxHeader(p.AtxID)
+			if err != nil {
+				return []types.ProposalID{}
+			}
+			if hdr.BaseTickHeight >= ownTickHeight {
+				// does not vote for future proposal
+				h.log.Warn("proposal base tick height too high. skipping",
+					zap.Uint32("lid", lid.Uint32()),
+					zap.Uint64("proposal_height", hdr.BaseTickHeight),
+					zap.Uint64("own_height", ownTickHeight),
+				)
+				continue
+			}
+		}
+		if p.EpochData != nil {
+			beacon = p.EpochData.Beacon
+		} else if p.RefBallot == types.EmptyBallotID {
+			return []types.ProposalID{}
+		} else if refBallot, err := ballots.Get(h.db, p.RefBallot); err != nil {
+			return []types.ProposalID{}
+		} else if refBallot.EpochData == nil {
+			return []types.ProposalID{}
+		} else {
+			beacon = refBallot.EpochData.Beacon
+		}
+
+		if beacon == epochBeacon {
+			result = append(result, p.ID())
+		} else {
+			h.log.Warn("proposal has different beacon value",
+				zap.Uint32("lid", lid.Uint32()),
+				zap.Stringer("id", p.ID()),
+				zap.String("proposal_beacon", beacon.ShortString()),
+				zap.String("epoch_beacon", epochBeacon.ShortString()),
+			)
+		}
+	}
+	return result
 }
 
 func (h *Hare) Stop() {
 	h.cancel()
 	h.eg.Wait()
-	select {
-	case <-h.results: // to prevent panic on second stop
-		return
-	default:
-	}
 	close(h.results)
 	close(h.coins)
 }

@@ -8,7 +8,86 @@ import (
 	"github.com/spacemeshos/go-spacemesh/common/types"
 )
 
-func (t *Common) EncodeScale(enc *scale.Encoder) (total int, err error) {
+func (t *Authenticator) EncodeScale(enc *scale.Encoder) (total int, err error) {
+	{
+		n, err := scale.EncodeByteArray(enc, t.Smesher[:])
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.EncodeByteArray(enc, t.Signature[:])
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (t *Authenticator) DecodeScale(dec *scale.Decoder) (total int, err error) {
+	{
+		n, err := scale.DecodeByteArray(dec, t.Smesher[:])
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.DecodeByteArray(dec, t.Signature[:])
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (t *FullMessage) EncodeScale(enc *scale.Encoder) (total int, err error) {
+	{
+		n, err := t.Body.EncodeScale(enc)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := t.Auth.EncodeScale(enc)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (t *FullMessage) DecodeScale(dec *scale.Decoder) (total int, err error) {
+	{
+		n, err := t.Body.DecodeScale(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := t.Auth.DecodeScale(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (t *FullBody) EncodeScale(enc *scale.Encoder) (total int, err error) {
+	{
+		n, err := scale.EncodeCompact8(enc, uint8(t.Round))
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
 	{
 		n, err := scale.EncodeCompact32(enc, uint32(t.Layer))
 		if err != nil {
@@ -38,14 +117,7 @@ func (t *Common) EncodeScale(enc *scale.Encoder) (total int, err error) {
 		total += n
 	}
 	{
-		n, err := scale.EncodeByteArray(enc, t.Smesher[:])
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	{
-		n, err := scale.EncodeByteArray(enc, t.Signature[:])
+		n, err := scale.EncodeStructSliceWithLimit(enc, t.Proposals, 200)
 		if err != nil {
 			return total, err
 		}
@@ -54,7 +126,15 @@ func (t *Common) EncodeScale(enc *scale.Encoder) (total int, err error) {
 	return total, nil
 }
 
-func (t *Common) DecodeScale(dec *scale.Decoder) (total int, err error) {
+func (t *FullBody) DecodeScale(dec *scale.Decoder) (total int, err error) {
+	{
+		field, n, err := scale.DecodeCompact8(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+		t.Round = uint8(field)
+	}
 	{
 		field, n, err := scale.DecodeCompact32(dec)
 		if err != nil {
@@ -87,57 +167,6 @@ func (t *Common) DecodeScale(dec *scale.Decoder) (total int, err error) {
 		total += n
 	}
 	{
-		n, err := scale.DecodeByteArray(dec, t.Smesher[:])
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	{
-		n, err := scale.DecodeByteArray(dec, t.Signature[:])
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	return total, nil
-}
-
-func (t *FullMessage) EncodeScale(enc *scale.Encoder) (total int, err error) {
-	{
-		n, err := scale.EncodeCompact8(enc, uint8(t.Round))
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	{
-		n, err := scale.EncodeStructSliceWithLimit(enc, t.Proposals, 200)
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	{
-		n, err := t.Common.EncodeScale(enc)
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	return total, nil
-}
-
-func (t *FullMessage) DecodeScale(dec *scale.Decoder) (total int, err error) {
-	{
-		field, n, err := scale.DecodeCompact8(dec)
-		if err != nil {
-			return total, err
-		}
-		total += n
-		t.Round = uint8(field)
-	}
-	{
 		field, n, err := scale.DecodeStructSliceWithLimit[types.ProposalID](dec, 200)
 		if err != nil {
 			return total, err
@@ -145,33 +174,19 @@ func (t *FullMessage) DecodeScale(dec *scale.Decoder) (total int, err error) {
 		total += n
 		t.Proposals = field
 	}
-	{
-		n, err := t.Common.DecodeScale(dec)
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
 	return total, nil
 }
 
 func (t *RefMessage) EncodeScale(enc *scale.Encoder) (total int, err error) {
 	{
-		n, err := scale.EncodeCompact8(enc, uint8(t.Round))
+		n, err := t.Body.EncodeScale(enc)
 		if err != nil {
 			return total, err
 		}
 		total += n
 	}
 	{
-		n, err := scale.EncodeByteArray(enc, t.Reference[:])
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	{
-		n, err := t.Common.EncodeScale(enc)
+		n, err := t.Auth.EncodeScale(enc)
 		if err != nil {
 			return total, err
 		}
@@ -182,6 +197,70 @@ func (t *RefMessage) EncodeScale(enc *scale.Encoder) (total int, err error) {
 
 func (t *RefMessage) DecodeScale(dec *scale.Decoder) (total int, err error) {
 	{
+		n, err := t.Body.DecodeScale(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := t.Auth.DecodeScale(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (t *RefBody) EncodeScale(enc *scale.Encoder) (total int, err error) {
+	{
+		n, err := scale.EncodeCompact8(enc, uint8(t.Round))
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.EncodeCompact32(enc, uint32(t.Layer))
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.EncodeCompact8(enc, uint8(t.Iteration))
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.EncodeCompact16(enc, uint16(t.Eligibilities))
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.EncodeByteArray(enc, t.VRF[:])
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.EncodeByteArray(enc, t.Ref[:])
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (t *RefBody) DecodeScale(dec *scale.Decoder) (total int, err error) {
+	{
 		field, n, err := scale.DecodeCompact8(dec)
 		if err != nil {
 			return total, err
@@ -190,14 +269,38 @@ func (t *RefMessage) DecodeScale(dec *scale.Decoder) (total int, err error) {
 		t.Round = uint8(field)
 	}
 	{
-		n, err := scale.DecodeByteArray(dec, t.Reference[:])
+		field, n, err := scale.DecodeCompact32(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+		t.Layer = types.LayerID(field)
+	}
+	{
+		field, n, err := scale.DecodeCompact8(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+		t.Iteration = uint8(field)
+	}
+	{
+		field, n, err := scale.DecodeCompact16(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+		t.Eligibilities = uint16(field)
+	}
+	{
+		n, err := scale.DecodeByteArray(dec, t.VRF[:])
 		if err != nil {
 			return total, err
 		}
 		total += n
 	}
 	{
-		n, err := t.Common.DecodeScale(dec)
+		n, err := scale.DecodeByteArray(dec, t.Ref[:])
 		if err != nil {
 			return total, err
 		}

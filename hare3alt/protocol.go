@@ -3,6 +3,7 @@ package hare3alt
 import (
 	"go.uber.org/zap/zapcore"
 
+	"github.com/spacemeshos/go-spacemesh/codec"
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/log"
 )
@@ -82,6 +83,19 @@ type message struct {
 	// part of hare metadata required for malfeasence proof
 	msgHash   types.Hash32
 	signature types.EdSignature
+}
+
+func (m *message) signedBytes() []byte {
+	meta := types.HareMetadata{
+		Layer:   m.layer,
+		Round:   uint32(m.round),
+		MsgHash: m.msgHash,
+	}
+	buf, err := codec.Encode(&meta)
+	if err != nil {
+		panic(err.Error())
+	}
+	return buf
 }
 
 type messageKey struct {
@@ -526,6 +540,7 @@ func (t *thresholdGossip) filterref(filter iterround, grade grade) []types.Hash3
 	for key, value := range t.state {
 		if key.iterround == filter && value.grade >= grade {
 			// nil should not be valid in this codepath
+			// this is enforced by correctly decoded messages
 			id := *value.value.reference
 			all[id] += value.eligibilities
 			if !value.malicious {

@@ -60,7 +60,7 @@ func (lg *LegacyOracle) active(smesher types.NodeID, layer types.LayerID, ir ite
 	elig, err := lg.oracle.CalcEligibility(context.Background(), layer, r, size, smesher, vrf)
 	if err != nil {
 		if !errors.Is(err, eligibility.ErrNotActive) {
-			lg.log.Error("failed to calc eligibilities", zap.Error(err))
+			lg.log.Error("failed to compute eligibilities", zap.Error(err))
 		}
 		return nil
 	}
