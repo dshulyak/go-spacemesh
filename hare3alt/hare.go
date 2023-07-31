@@ -171,7 +171,7 @@ func (h *Hare) onLayer(layer types.LayerID) {
 		return
 	}
 	h.mu.Lock()
-	inputs := make(chan *instanceInput, 32)
+	inputs := make(chan *instanceInput)
 	ctx, cancel := context.WithCancel(h.ctx)
 	h.instances[layer] = instanceInputs{
 		ctx:    ctx,
