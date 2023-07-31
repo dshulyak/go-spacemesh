@@ -258,11 +258,15 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *proof) error {
 		}
 		out.message.eligibilities = vrf.eligibilities
 		out.message.vrf = vrf.vrf
-		if err := h.pubsub.Publish(
-			h.ctx, protocolName,
-			encodeWithSignature(out.message, h.signer)); err != nil {
-			h.log.Error("failed to publish", zap.Inline(out.message))
-		}
+		// message will be received by the same goroutine
+		h.eg.Go(func() error {
+			if err := h.pubsub.Publish(
+				h.ctx, protocolName,
+				encodeWithSignature(out.message, h.signer)); err != nil {
+				h.log.Error("failed to publish", zap.Inline(out.message))
+			}
+			return nil
+		})
 	}
 	if out.coin != nil {
 		select {
