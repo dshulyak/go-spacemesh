@@ -20,6 +20,7 @@ import (
 	"github.com/spacemeshos/go-spacemesh/signing"
 	"github.com/spacemeshos/go-spacemesh/sql"
 	"github.com/spacemeshos/go-spacemesh/sql/ballots"
+	"github.com/spacemeshos/go-spacemesh/sql/beacons"
 	"github.com/spacemeshos/go-spacemesh/sql/proposals"
 	"github.com/spacemeshos/go-spacemesh/system"
 	"github.com/spacemeshos/go-spacemesh/timesync"
@@ -130,7 +131,6 @@ func New(
 	signer *signing.EdSigner,
 	oracle oracle,
 	sync system.SyncStateProvider,
-	beacon system.BeaconGetter,
 	opts ...Opt,
 ) *Hare {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -139,10 +139,12 @@ func New(
 		cancel:    cancel,
 		results:   make(chan ConsensusOutput, 32),
 		coins:     make(chan WeakCoinOutput, 32),
+		instances: map[types.LayerID]instanceInputs{},
+
 		config:    DefaultConfig(),
 		log:       zap.NewNop(),
 		wallclock: clock.New(),
-		instances: map[types.LayerID]instanceInputs{},
+
 		nodeclock: nodeclock,
 		pubsub:    pubsub,
 		db:        db,
@@ -153,8 +155,7 @@ func New(
 			oracle: oracle,
 			config: DefaultConfig(),
 		},
-		sync:   sync,
-		beacon: beacon,
+		sync: sync,
 	}
 	for _, opt := range opts {
 		opt(hr)
@@ -163,16 +164,21 @@ func New(
 }
 
 type Hare struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	eg      errgroup.Group
-	results chan ConsensusOutput
-	coins   chan WeakCoinOutput
+	// state
+	ctx       context.Context
+	cancel    context.CancelFunc
+	eg        errgroup.Group
+	results   chan ConsensusOutput
+	coins     chan WeakCoinOutput
+	mu        sync.Mutex
+	instances map[types.LayerID]instanceInputs
 
+	// options
 	config    Config
 	log       *zap.Logger
 	wallclock clock.Clock
 
+	// dependencies
 	nodeclock *timesync.NodeClock
 	pubsub    pubsub.PublishSubsciber
 	db        *datastore.CachedDB
@@ -180,10 +186,6 @@ type Hare struct {
 	signer    *signing.EdSigner
 	oracle    *legacyOracle
 	sync      system.SyncStateProvider
-	beacon    system.BeaconGetter
-
-	mu        sync.Mutex
-	instances map[types.LayerID]instanceInputs
 }
 
 func (h *Hare) Results() <-chan ConsensusOutput {
@@ -254,13 +256,13 @@ func (h *Hare) onLayer(layer types.LayerID) {
 	if !h.sync.IsSynced(h.ctx) {
 		return
 	}
-	beacon, err := h.beacon.GetBeacon(layer.GetEpoch())
+	beacon, err := beacons.Get(h.db, layer.GetEpoch())
 	if err != nil || beacon == types.EmptyBeacon {
 		return
 	}
-	h.mu.Lock()
 	inputs := make(chan *instanceInput)
 	ctx, cancel := context.WithCancel(h.ctx)
+	h.mu.Lock()
 	h.instances[layer] = instanceInputs{
 		ctx:    ctx,
 		inputs: inputs,
@@ -291,13 +293,13 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	// before it needs to be used in validation
 	vrf := h.oracle.active(h.signer.NodeID(), layer, IterRound{Round: preround})
 	walltime := h.nodeclock.LayerToTime(layer).Add(h.config.PreroundDelay)
-	select {
-	case <-h.wallclock.After(h.wallclock.Until(walltime)):
-	case <-h.ctx.Done():
-	}
 	var proposals []types.ProposalID
-	// initial set doesn't matter if node is not active in preround
 	if vrf != nil {
+		// initial set is not needed if node is not active in preround
+		select {
+		case <-h.wallclock.After(h.wallclock.Until(walltime)):
+		case <-h.ctx.Done():
+		}
 		proposals = h.proposals(layer, beacon)
 	}
 	proto := newProtocol(proposals, h.config.Committee/2+1)
@@ -342,7 +344,7 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *types.HareEligibil
 	)
 	if out.message != nil {
 		if vrf == nil {
-			panic("inconsistent state")
+			panic("inconsistent state. message without vrf")
 		}
 		out.message.Eligibility = *vrf
 		h.eg.Go(func() error {
@@ -356,16 +358,16 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *types.HareEligibil
 	}
 	if out.coin != nil {
 		select {
+		case <-h.ctx.Done():
+			return h.ctx.Err()
 		case h.coins <- WeakCoinOutput{Layer: layer, Coin: *out.coin}:
-		default:
-			return fmt.Errorf("coins channel is expected to be drained")
 		}
 	}
 	if out.result != nil {
 		select {
+		case <-h.ctx.Done():
+			return h.ctx.Err()
 		case h.results <- ConsensusOutput{Layer: layer, Proposals: out.result}:
-		default:
-			return fmt.Errorf("results channel is expected to be drained")
 		}
 	}
 	return nil

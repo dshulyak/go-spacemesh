@@ -163,10 +163,6 @@ func (p *protocol) thresholdGossipMessage(ir IterRound, grade grade) (*types.Has
 	return nil, nil
 }
 
-func (p *protocol) thresholdGossipCommit(iter uint8, grade grade) (*types.Hash32, []types.ProposalID) {
-	return p.thresholdGossipMessage(IterRound{Iter: iter, Round: commit}, grade)
-}
-
 func (p *protocol) thresholdGossipExists(iter uint8, grade grade, match types.Hash32) bool {
 	for _, ref := range p.thresholdGossip.filterref(IterRound{Iter: iter, Round: commit}, grade) {
 		if ref == match {
@@ -178,7 +174,6 @@ func (p *protocol) thresholdGossipExists(iter uint8, grade grade, match types.Ha
 
 func (p *protocol) execution(out *output, active bool) {
 	// code below aims to look similar to 4.3 Protocol Execution
-	// NOTE(dshulyak) please keep code in this method forward only
 	if p.Iter == 0 && p.Round >= softlock && p.Round <= wait2 {
 		// -1 - skipped hardlock round in iter 0
 		// -1 - implementation rounds starts from 0
@@ -195,22 +190,22 @@ func (p *protocol) execution(out *output, active bool) {
 			out.terminated = true
 		}
 		ref, values := p.thresholdGossipMessage(IterRound{Iter: p.Iter - 1, Round: notify}, grade5)
-		if ref != nil {
+		if ref != nil && p.result == nil {
 			p.result = ref
 			out.result = values
 		}
-		if ref, _ := p.thresholdGossipCommit(p.Iter-1, grade4); ref != nil {
+		if ref, _ := p.thresholdGossipMessage(IterRound{Iter: p.Iter - 1, Round: commit}, grade4); ref != nil {
 			p.locked = ref
 			p.hardLocked = true
 		}
 	} else if p.Round == softlock && p.Iter > 0 {
-		if ref, _ := p.thresholdGossipCommit(p.Iter-1, grade3); ref != nil {
+		if ref, _ := p.thresholdGossipMessage(IterRound{Iter: p.Iter - 1, Round: commit}, grade3); ref != nil {
 			p.locked = ref
 		}
 	} else if p.Round == propose && active {
 		values := p.gradedProposals.get(grade4)
 		if p.Iter > 0 {
-			ref, overwrite := p.thresholdGossipCommit(p.Iter-1, grade2)
+			ref, overwrite := p.thresholdGossipMessage(IterRound{Iter: p.Iter - 1, Round: commit}, grade2)
 			if ref != nil {
 				values = overwrite
 			}
@@ -241,8 +236,8 @@ func (p *protocol) execution(out *output, active bool) {
 					if proposal, exist := p.validProposals[id]; !exist || proposal.iter > p.Iter {
 						continue
 					}
-					// condition (d) IsLeader is implicit, propose won't pass eligibility check
 					// TODO(dshulyak) doublecheck if there are nuances about (d)
+					// condition (d) IsLeader is implicit, propose won't pass eligibility check
 					// condition (e)
 					if graded.grade != grade2 {
 						continue
@@ -273,7 +268,7 @@ func (p *protocol) execution(out *output, active bool) {
 	} else if p.Round == notify && active {
 		ref := p.result
 		if ref == nil {
-			ref, _ = p.thresholdGossipCommit(p.Iter, grade5)
+			ref, _ = p.thresholdGossipMessage(IterRound{Iter: p.Iter, Round: commit}, grade5)
 		}
 		if ref != nil {
 			out.message = &Message{Body: Body{
