@@ -341,9 +341,12 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 				zap.Uint32("lid", layer.Uint32()),
 				zap.Stringer("round", proto.Round),
 			)
-			// TODO(dshulyak) active call should be made in parallel with message
-			// processing
+			// NOTE(dshulyak) active call can be made in parallel with message processing.
+			// on the other hand this computation is between 300us-2ms
+			// on my computer
+			start := time.Now()
 			vrf := h.oracle.active(h.signer.NodeID(), layer, proto.IterRound)
+			fmt.Println(time.Since(start))
 			out := proto.next(vrf != nil)
 			if err := h.onOutput(layer, out, vrf); err != nil {
 				return err

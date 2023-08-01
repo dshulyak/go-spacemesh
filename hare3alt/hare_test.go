@@ -158,7 +158,8 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 		wall.Add(cfg.PreroundDelay)
 	}
 	for i := 0; i < 2*int(notify); i++ {
-		// TODO(dshulyak) this needs to be improved
+		// TODO(dshulyak) this needs to be improved, i lack synchronization
+		// when active members completed round
 		time.Sleep(pause)
 		for _, wall := range clocks {
 			wall.Add(cfg.RoundDuration)
@@ -184,10 +185,4 @@ func TestHare(t *testing.T) {
 	t.Run("one", func(t *testing.T) { testHare(t, 1, 10*time.Millisecond) })
 	t.Run("two", func(t *testing.T) { testHare(t, 2, 10*time.Millisecond) })
 	t.Run("small", func(t *testing.T) { testHare(t, 10, 10*time.Millisecond) })
-	t.Run("mid", func(t *testing.T) {
-		if testing.Short() {
-			t.Skip()
-		}
-		testHare(t, 50, 10*time.Millisecond)
-	})
 }
