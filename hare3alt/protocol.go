@@ -1,6 +1,8 @@
 package hare3alt
 
 import (
+	"sort"
+
 	"go.uber.org/zap/zapcore"
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
@@ -42,6 +44,14 @@ type input struct {
 	grade     grade
 	malicious bool
 	msgHash   types.Hash32
+}
+
+func (i *input) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	encoder.AddObject("msg", i.Message)
+	encoder.AddUint8("grade", uint8(i.grade))
+	encoder.AddBool("malicious", i.malicious)
+	encoder.AddString("hash", i.msgHash.ShortString())
+	return nil
 }
 
 type messageKey struct {
@@ -173,7 +183,7 @@ func (p *protocol) execution(out *output, active bool) {
 		// -1 - skipped hardlock round in iter 0
 		// -1 - implementation rounds starts from 0
 		g := grade5 - grade(p.Round-2)
-		p.gradedProposals.set(g, p.thresholdGossip.filter(p.IterRound, g))
+		p.gradedProposals.set(g, p.thresholdGossip.filter(IterRound{Round: preround}, g))
 	}
 	if p.Round == preround && active {
 		out.message = &Message{Body: Body{
@@ -232,7 +242,7 @@ func (p *protocol) execution(out *output, active bool) {
 						continue
 					}
 					// condition (d) IsLeader is implicit, propose won't pass eligibility check
-					// TODO(dshulyak) doublecheck if there are nuances about this check
+					// TODO(dshulyak) doublecheck if there are nuances about (d)
 					// condition (e)
 					if graded.grade != grade2 {
 						continue
@@ -242,7 +252,7 @@ func (p *protocol) execution(out *output, active bool) {
 						continue
 					}
 					// condition (g)
-					if !isSubset(p.gradedProposals.get(grade5), graded.values) ||
+					if !isSubset(p.gradedProposals.get(grade5), graded.values) &&
 						!p.thresholdGossipExists(p.Iter-1, grade1, id) {
 						continue
 					}
@@ -316,6 +326,7 @@ type gradecasted struct {
 	received  IterRound
 	malicious bool
 	values    []types.ProposalID
+	smallest  types.VrfSignature
 }
 
 func (g *gradecasted) ggrade(current IterRound) grade {
@@ -342,14 +353,18 @@ func (g *gradecast) add(grade grade, current IterRound, msg *input) {
 		received:  current,
 		malicious: msg.malicious,
 		values:    msg.Value.Proposals,
+		smallest:  msg.Eligibility.Proof,
 	}
 	other, exist := g.state[msg.Key()]
 	if !exist {
 		g.state[msg.Key()] = &gc
 		return
-	}
-	if other.malicious {
+	} else if other.malicious {
 		return
+	} else {
+		if gc.smallest.Cmp(&other.smallest) == -1 {
+			other.smallest = msg.Eligibility.Proof
+		}
 	}
 	switch {
 	case other.ggrade(current) == grade2 && current.Since(gc.received) <= 3:
@@ -360,8 +375,9 @@ func (g *gradecast) add(grade grade, current IterRound, msg *input) {
 }
 
 type gset struct {
-	values []types.ProposalID
-	grade  grade
+	values   []types.ProposalID
+	grade    grade
+	smallest types.VrfSignature
 }
 
 func (g *gradecast) filter(filter IterRound) []gset {
@@ -370,12 +386,17 @@ func (g *gradecast) filter(filter IterRound) []gset {
 		if key.IterRound == filter {
 			if grade := value.ggrade(filter); grade > 0 {
 				rst = append(rst, gset{
-					grade:  grade,
-					values: value.values,
+					grade:    grade,
+					values:   value.values,
+					smallest: value.smallest,
 				})
 			}
 		}
 	}
+	// NOTE(dshulyak) consistent order, not a part of the paper
+	sort.Slice(rst, func(i, j int) bool {
+		return rst[i].smallest.Cmp(&rst[j].smallest) == -1
+	})
 	return rst
 }
 
@@ -422,7 +443,7 @@ func (t *thresholdGossip) filter(filter IterRound, grade grade) []types.Proposal
 			}
 		}
 	}
-	var rst []types.ProposalID
+	rst := []types.ProposalID{}
 	for id := range good {
 		if all[id] >= t.threshold {
 			rst = append(rst, id)

@@ -51,11 +51,11 @@ type Body struct {
 	IterRound
 	Value       Value
 	Eligibility types.HareEligibility
-	Sender      types.NodeID
 }
 
 type Message struct {
 	Body
+	Sender    types.NodeID
 	Signature types.EdSignature
 }
 

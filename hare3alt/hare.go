@@ -37,6 +37,17 @@ type Config struct {
 	RoundDuration   time.Duration `mapstructure:"round-duration"`
 }
 
+func DefaultConfig() Config {
+	return Config{
+		Enable:          true,
+		Committee:       800,
+		Leaders:         10,
+		IterationsLimit: 40,
+		PreroundDelay:   25 * time.Second,
+		RoundDuration:   10 * time.Second,
+	}
+}
+
 type ConsensusOutput struct {
 	Layer     types.LayerID
 	Proposals []types.ProposalID
@@ -48,11 +59,11 @@ type WeakCoinOutput struct {
 }
 
 type instanceInput struct {
-	message *input
-	result  chan *messageResponse
+	input  *input
+	result chan *response
 }
 
-type messageResponse struct {
+type response struct {
 	gossip       bool
 	equivocation *types.HareProof
 }
@@ -62,10 +73,10 @@ type instanceInputs struct {
 	inputs chan<- *instanceInput
 }
 
-func (inputs *instanceInputs) submit(msg *input) (*messageResponse, error) {
+func (inputs *instanceInputs) submit(msg *input) (*response, error) {
 	input := &instanceInput{
-		message: msg,
-		result:  make(chan *messageResponse, 1),
+		input:  msg,
+		result: make(chan *response, 1),
 	}
 	select {
 	case <-inputs.ctx.Done():
@@ -80,6 +91,77 @@ func (inputs *instanceInputs) submit(msg *input) (*messageResponse, error) {
 	}
 }
 
+type Opt func(*Hare)
+
+func WithWallclock(clock clock.Clock) Opt {
+	return func(hr *Hare) {
+		hr.wallclock = clock
+	}
+}
+
+func WithConfig(cfg Config) Opt {
+	return func(hr *Hare) {
+		hr.config = cfg
+		hr.oracle.config = cfg
+	}
+}
+
+func WithLogger(logger *zap.Logger) Opt {
+	return func(hr *Hare) {
+		hr.log = logger
+		hr.oracle.log = logger
+	}
+}
+
+// WithEnableLayer can be used to pass genesis layer.
+// Note that for it to have effect it needs to be after WithConfig.
+func WithEnableLayer(layer types.LayerID) Opt {
+	return func(hr *Hare) {
+		hr.config.EnableAfter = layer
+		hr.oracle.config.EnableAfter = layer
+	}
+}
+
+func New(
+	nodeclock *timesync.NodeClock,
+	pubsub pubsub.PublishSubsciber,
+	db *datastore.CachedDB,
+	verifier *signing.EdVerifier,
+	signer *signing.EdSigner,
+	oracle oracle,
+	sync system.SyncStateProvider,
+	beacon system.BeaconGetter,
+	opts ...Opt,
+) *Hare {
+	ctx, cancel := context.WithCancel(context.Background())
+	hr := &Hare{
+		ctx:       ctx,
+		cancel:    cancel,
+		results:   make(chan ConsensusOutput, 32),
+		coins:     make(chan WeakCoinOutput, 32),
+		config:    DefaultConfig(),
+		log:       zap.NewNop(),
+		wallclock: clock.New(),
+		instances: map[types.LayerID]instanceInputs{},
+		nodeclock: nodeclock,
+		pubsub:    pubsub,
+		db:        db,
+		verifier:  verifier,
+		signer:    signer,
+		oracle: &legacyOracle{
+			log:    zap.NewNop(),
+			oracle: oracle,
+			config: DefaultConfig(),
+		},
+		sync:   sync,
+		beacon: beacon,
+	}
+	for _, opt := range opts {
+		opt(hr)
+	}
+	return hr
+}
+
 type Hare struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -91,14 +173,14 @@ type Hare struct {
 	log       *zap.Logger
 	wallclock clock.Clock
 
-	nodeclock  *timesync.NodeClock
-	pubsub     pubsub.PublishSubsciber
-	db         *datastore.CachedDB
-	edVerifier *signing.EdVerifier
-	signer     *signing.EdSigner
-	oracle     *legacyOracle
-	sync       system.SyncStateProvider
-	beacon     system.BeaconGetter
+	nodeclock *timesync.NodeClock
+	pubsub    pubsub.PublishSubsciber
+	db        *datastore.CachedDB
+	verifier  *signing.EdVerifier
+	signer    *signing.EdSigner
+	oracle    *legacyOracle
+	sync      system.SyncStateProvider
+	beacon    system.BeaconGetter
 
 	mu        sync.Mutex
 	instances map[types.LayerID]instanceInputs
@@ -112,6 +194,21 @@ func (h *Hare) Coins() <-chan WeakCoinOutput {
 	return h.coins
 }
 
+func (h *Hare) Start() {
+	h.eg.Go(func() error {
+		h.pubsub.Register(protocolName, h.handler)
+		enabled := types.MaxLayer(h.nodeclock.CurrentLayer(), h.config.EnableAfter)
+		for next := enabled + 1; ; next++ {
+			select {
+			case <-h.nodeclock.AwaitLayer(next):
+				h.onLayer(next)
+			case <-h.ctx.Done():
+				return nil
+			}
+		}
+	})
+}
+
 func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 	msg := &Message{}
 	if err := codec.Decode(buf, msg); err != nil {
@@ -123,7 +220,7 @@ func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 	if !registered {
 		return fmt.Errorf("layer %d is not registered", msg.Layer)
 	}
-	if !h.edVerifier.Verify(signing.HARE, msg.Sender, msg.ToMetadata().ToBytes(), msg.Signature) {
+	if !h.verifier.Verify(signing.HARE, msg.Sender, msg.ToMetadata().ToBytes(), msg.Signature) {
 		return fmt.Errorf("%w: invalid signature", pubsub.ErrValidationReject)
 	}
 	g := h.oracle.validate(msg)
@@ -151,21 +248,6 @@ func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 		return fmt.Errorf("dropped by graded gossip")
 	}
 	return nil
-}
-
-func (h *Hare) Start() {
-	h.eg.Go(func() error {
-		h.pubsub.Register(protocolName, h.handler)
-		enabled := types.MaxLayer(h.nodeclock.CurrentLayer(), h.config.EnableAfter)
-		for next := enabled + 1; ; next++ {
-			select {
-			case <-h.nodeclock.AwaitLayer(next):
-				h.onLayer(next)
-			case <-h.ctx.Done():
-				return nil
-			}
-		}
-	})
 }
 
 func (h *Hare) onLayer(layer types.LayerID) {
@@ -226,12 +308,12 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	for {
 		select {
 		case input := <-inputs:
-			gossip, equivocation := proto.onMessage(input.message)
+			gossip, equivocation := proto.onMessage(input.input)
 			h.log.Debug("on message",
-				zap.Inline(input.message),
+				zap.Inline(input.input),
 				zap.Bool("gossip", gossip),
 			)
-			input.result <- &messageResponse{gossip: gossip, equivocation: equivocation}
+			input.result <- &response{gossip: gossip, equivocation: equivocation}
 		case <-h.wallclock.After(h.wallclock.Until(walltime)):
 			vrf := h.oracle.active(h.signer.NodeID(), layer, proto.IterRound)
 			out := proto.next(vrf != nil)

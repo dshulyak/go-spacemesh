@@ -113,13 +113,6 @@ func (t *Body) EncodeScale(enc *scale.Encoder) (total int, err error) {
 		}
 		total += n
 	}
-	{
-		n, err := scale.EncodeByteArray(enc, t.Sender[:])
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
 	return total, nil
 }
 
@@ -153,19 +146,19 @@ func (t *Body) DecodeScale(dec *scale.Decoder) (total int, err error) {
 		}
 		total += n
 	}
-	{
-		n, err := scale.DecodeByteArray(dec, t.Sender[:])
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
 	return total, nil
 }
 
 func (t *Message) EncodeScale(enc *scale.Encoder) (total int, err error) {
 	{
 		n, err := t.Body.EncodeScale(enc)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.EncodeByteArray(enc, t.Sender[:])
 		if err != nil {
 			return total, err
 		}
@@ -184,6 +177,13 @@ func (t *Message) EncodeScale(enc *scale.Encoder) (total int, err error) {
 func (t *Message) DecodeScale(dec *scale.Decoder) (total int, err error) {
 	{
 		n, err := t.Body.DecodeScale(dec)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	{
+		n, err := scale.DecodeByteArray(dec, t.Sender[:])
 		if err != nil {
 			return total, err
 		}
