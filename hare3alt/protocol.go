@@ -324,11 +324,11 @@ type gradecasted struct {
 	smallest  types.VrfSignature
 }
 
-func (g *gradecasted) ggrade(current IterRound) grade {
+func (g *gradecasted) ggrade(before IterRound) grade {
 	switch {
-	case !g.malicious && g.grade == grade3 && current.Since(g.received) <= 1:
+	case !g.malicious && g.grade == grade3 && g.received.Since(before) <= 1:
 		return grade2
-	case !g.malicious && g.grade >= grade2 && current.Since(g.received) <= 2:
+	case !g.malicious && g.grade >= grade2 && g.received.Since(before) <= 2:
 		return grade1
 	default:
 		return grade0

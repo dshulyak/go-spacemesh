@@ -129,5 +129,6 @@ func (m *Message) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	} else if m.Value.Reference != nil {
 		encoder.AddString("ref", m.Value.Reference.ShortString())
 	}
+	encoder.AddUint16("vrf_count", m.Eligibility.Count)
 	return nil
 }

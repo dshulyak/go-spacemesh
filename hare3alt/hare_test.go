@@ -2,26 +2,30 @@ package hare3alt
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/benbjohnson/clock"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/datastore"
 	"github.com/spacemeshos/go-spacemesh/hare/eligibility"
 	"github.com/spacemeshos/go-spacemesh/hare/eligibility/config"
+	"github.com/spacemeshos/go-spacemesh/log"
 	"github.com/spacemeshos/go-spacemesh/log/logtest"
-	"github.com/spacemeshos/go-spacemesh/p2p"
 	pmocks "github.com/spacemeshos/go-spacemesh/p2p/pubsub/mocks"
 	"github.com/spacemeshos/go-spacemesh/signing"
 	"github.com/spacemeshos/go-spacemesh/sql"
+	"github.com/spacemeshos/go-spacemesh/sql/atxs"
+	"github.com/spacemeshos/go-spacemesh/sql/ballots"
 	"github.com/spacemeshos/go-spacemesh/sql/beacons"
+	"github.com/spacemeshos/go-spacemesh/sql/proposals"
 	smocks "github.com/spacemeshos/go-spacemesh/system/mocks"
 	"github.com/spacemeshos/go-spacemesh/timesync"
 )
@@ -34,13 +38,15 @@ func TestMain(m *testing.M) {
 	os.Exit(res)
 }
 
-func testHare(tb testing.TB, n int) {
+func testHare(tb testing.TB, n int, pause time.Duration) {
 	tb.Helper()
 	now := time.Now()
+	cfg := DefaultConfig()
 	ctrl := gomock.NewController(tb)
 	wall := clock.NewMock()
 	wall.Set(now)
-	layerDuration := 2 * time.Minute
+	layerDuration := 5 * time.Minute
+	beacon := types.Beacon{1, 1, 1, 1}
 	nodeclock, err := timesync.NewClock(
 		timesync.WithLogger(logtest.New(tb)),
 		timesync.WithClock(wall),
@@ -64,10 +70,16 @@ func testHare(tb testing.TB, n int) {
 	})
 	pubs := pmocks.NewMockPublishSubsciber(ctrl)
 	pubs.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes()
-	pubs.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).Do(func(ctx context.Context, pid p2p.Peer, msg []byte) {
+	pubs.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).Do(func(ctx context.Context, _ string, msg []byte) error {
+		var eg errgroup.Group
 		for _, hr := range hares {
-			require.NoError(tb, hr.handler(ctx, pid, msg))
+			hr := hr
+			eg.Go(func() error {
+				return hr.handler(ctx, "self", msg)
+			})
 		}
+		require.NoError(tb, eg.Wait())
+		return nil
 	}).AnyTimes()
 	signers := make([]*signing.EdSigner, n)
 	for i := range signers {
@@ -77,6 +89,7 @@ func testHare(tb testing.TB, n int) {
 	}
 	genesis := types.GetEffectiveGenesis()
 	vatxs := make([]*types.VerifiedActivationTx, n)
+	ids := make([]types.ATXID, n)
 	for i := range vatxs {
 		atx := &types.ActivationTx{}
 		atx.NumUnits = 10
@@ -92,26 +105,78 @@ func testHare(tb testing.TB, n int) {
 		verified, err := atx.Verify(0, 100)
 		require.NoError(tb, err)
 		vatxs[i] = verified
+		ids[i] = id
 	}
+	logger := logtest.New(tb)
 	for i := 0; i < n; i++ {
-		log := logtest.New(tb).Named(strconv.Itoa(i))
-		db := datastore.NewCachedDB(sql.InMemory(), log)
-		require.NoError(tb, beacons.Add(db, types.GetEffectiveGenesis().GetEpoch()+1, types.Beacon{1, 1, 1}))
+		logger := logger.Named(fmt.Sprintf("hare=%d", i))
+		db := datastore.NewCachedDB(sql.InMemory(), log.NewNop())
+		require.NoError(tb, beacons.Add(db, types.GetEffectiveGenesis().GetEpoch()+1, beacon))
 		beaconget := smocks.NewMockBeaconGetter(ctrl)
 		beaconget.EXPECT().GetBeacon(gomock.Any()).DoAndReturn(func(epoch types.EpochID) (types.Beacon, error) {
 			return beacons.Get(db, epoch)
 		}).AnyTimes()
+		for _, atx := range vatxs {
+			require.NoError(tb, atxs.Add(db, atx))
+		}
 		vrfsigner, err := signers[i].VRFSigner()
 		require.NoError(tb, err)
-		or := eligibility.New(beaconget, db, vrfverifier, vrfsigner, layersPerEpoch, config.DefaultConfig(), log)
+		or := eligibility.New(beaconget, db, vrfverifier, vrfsigner, layersPerEpoch, config.DefaultConfig(), log.NewNop())
+		or.UpdateActiveSet(types.FirstEffectiveGenesis().GetEpoch()+1, ids)
 		hares[i] = New(nodeclock, pubs, db, verifier, signers[i], or, syncer,
-			WithLogger(log.Zap()), WithWallclock(wall), WithEnableLayer(genesis))
+			WithLogger(logger.Zap()), WithWallclock(wall), WithEnableLayer(genesis))
 		hares[i].Start()
 	}
 	wall.Set(now.Add(2 * layersPerEpoch * layerDuration))
-	time.Sleep(time.Minute)
+	layer := types.GetEffectiveGenesis() + 1
+	bound := len(vatxs)
+	if bound > 50 {
+		bound = 50
+	}
+	for i, atx := range vatxs[:bound] {
+		proposal := &types.Proposal{}
+		proposal.Layer = layer
+		proposal.ActiveSet = ids
+		proposal.EpochData = &types.EpochData{
+			Beacon: beacon,
+		}
+		proposal.AtxID = atx.ID()
+		proposal.SmesherID = signers[i].NodeID()
+		id := types.ProposalID{}
+		rng.Read(id[:])
+		bid := types.BallotID{}
+		rng.Read(bid[:])
+		proposal.SetID(id)
+		proposal.Ballot.SetID(bid)
+		for _, hr := range hares {
+			require.NoError(tb, ballots.Add(hr.db, &proposal.Ballot))
+			require.NoError(tb, proposals.Add(hr.db, proposal))
+		}
+	}
+	logger.Debug("setup is finished")
+	wall.Add(cfg.PreroundDelay)
+	for i := 0; i < int(notify)*2; i++ {
+		time.Sleep(pause)
+		wall.Add(cfg.RoundDuration)
+	}
+
+	for _, hr := range hares {
+		select {
+		case rst := <-hr.Results():
+			require.Equal(tb, rst.Layer, layer)
+			require.NotEmpty(tb, rst.Proposals)
+		default:
+			require.FailNow(tb, "no result")
+		}
+	}
+	for _, hr := range hares {
+		time.Sleep(pause)
+		require.Empty(tb, hr.Running())
+	}
 }
 
 func TestHare(t *testing.T) {
-	t.Run("one", func(t *testing.T) { testHare(t, 1) })
+	t.Run("one", func(t *testing.T) { testHare(t, 1, 10*time.Millisecond) })
+	t.Run("two", func(t *testing.T) { testHare(t, 2, 10*time.Millisecond) })
+	t.Run("small", func(t *testing.T) { testHare(t, 10, 10*time.Millisecond) })
 }

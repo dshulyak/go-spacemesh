@@ -213,6 +213,12 @@ func (h *Hare) Start() {
 	})
 }
 
+func (h *Hare) Running() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.instances)
+}
+
 func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 	msg := &Message{}
 	if err := codec.Decode(buf, msg); err != nil {
@@ -307,6 +313,7 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	walltime := h.nodeclock.LayerToTime(layer).Add(h.config.PreroundDelay)
 	var proposals []types.ProposalID
 	if vrf != nil {
+		h.log.Debug("active in preround", zap.Uint32("lid", layer.Uint32()))
 		// initial set is not needed if node is not active in preround
 		select {
 		case <-h.wallclock.After(h.wallclock.Until(walltime)):
@@ -319,6 +326,7 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 		return err
 	}
 	walltime = walltime.Add(h.config.RoundDuration)
+	h.log.Debug("ready to accept messages", zap.Uint32("lid", layer.Uint32()))
 	for {
 		select {
 		case input := <-inputs:
@@ -329,6 +337,10 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 			)
 			input.result <- &response{gossip: gossip, equivocation: equivocation}
 		case <-h.wallclock.After(h.wallclock.Until(walltime)):
+			h.log.Debug("execute round",
+				zap.Uint32("lid", layer.Uint32()),
+				zap.Stringer("round", proto.Round),
+			)
 			vrf := h.oracle.active(h.signer.NodeID(), layer, proto.IterRound)
 			out := proto.next(vrf != nil)
 			if err := h.onOutput(layer, out, vrf); err != nil {
@@ -358,6 +370,7 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *types.HareEligibil
 		if vrf == nil {
 			panic("inconsistent state. message without vrf")
 		}
+		out.message.Layer = layer
 		out.message.Eligibility = *vrf
 		h.eg.Go(func() error {
 			out.message.Sender = h.signer.NodeID()
