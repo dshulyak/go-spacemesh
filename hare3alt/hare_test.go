@@ -86,9 +86,8 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 		ids[i] = id
 	}
 
-	logger := logtest.New(tb)
 	for i := 0; i < n; i++ {
-		logger = logger.Named(fmt.Sprintf("hare=%d", i))
+		logger := logtest.New(tb).Named(fmt.Sprintf("hare=%d", i))
 		ctrl := gomock.NewController(tb)
 		syncer := smocks.NewMockSyncStateProvider(ctrl)
 		syncer.EXPECT().IsSynced(gomock.Any()).Return(true).AnyTimes()
@@ -186,7 +185,6 @@ func TestHare(t *testing.T) {
 	t.Run("two", func(t *testing.T) { testHare(t, 2, 10*time.Millisecond) })
 	t.Run("small", func(t *testing.T) { testHare(t, 10, 10*time.Millisecond) })
 	t.Run("mid", func(t *testing.T) {
-		// debug why does it take so long
 		if testing.Short() {
 			t.Skip()
 		}

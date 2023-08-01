@@ -326,8 +326,24 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	if err := h.onOutput(layer, proto.next(vrf != nil), vrf); err != nil {
 		return err
 	}
-	walltime = walltime.Add(h.config.RoundDuration)
 	h.log.Debug("ready to accept messages", zap.Uint32("lid", layer.Uint32()))
+	rounds := make(chan *types.HareEligibility, 1)
+	h.eg.Go(func() error {
+		for {
+			walltime = walltime.Add(h.config.RoundDuration)
+			select {
+			case <-h.wallclock.After(h.wallclock.Until(walltime)):
+				vrf := h.oracle.active(h.signer.NodeID(), layer, proto.IterRound)
+				select {
+				case rounds <- vrf:
+				case <-h.ctx.Done():
+					return nil
+				}
+			case <-h.ctx.Done():
+				return nil
+			}
+		}
+	})
 	for {
 		select {
 		case input := <-inputs:
@@ -337,12 +353,11 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 				zap.Bool("gossip", gossip),
 			)
 			input.result <- &response{gossip: gossip, equivocation: equivocation}
-		case <-h.wallclock.After(h.wallclock.Until(walltime)):
+		case vrf := <-rounds:
 			h.log.Debug("execute round",
 				zap.Uint32("lid", layer.Uint32()),
 				zap.Stringer("round", proto.Round),
 			)
-			vrf := h.oracle.active(h.signer.NodeID(), layer, proto.IterRound)
 			out := proto.next(vrf != nil)
 			if err := h.onOutput(layer, out, vrf); err != nil {
 				return err
@@ -354,7 +369,6 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 				return fmt.Errorf("hare failed to reach consensus in %d iterations",
 					h.config.IterationsLimit)
 			}
-			walltime = walltime.Add(h.config.RoundDuration)
 		case <-h.ctx.Done():
 			return nil
 		}
