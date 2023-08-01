@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"testing"
 	"time"
@@ -11,7 +13,6 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/datastore"
@@ -39,22 +40,21 @@ func TestMain(m *testing.M) {
 }
 
 func testHare(tb testing.TB, n int, pause time.Duration) {
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
 	tb.Helper()
 	now := time.Now()
 	cfg := DefaultConfig()
 	ctrl := gomock.NewController(tb)
-	wall := clock.NewMock()
-	wall.Set(now)
+	clocks := make([]*clock.Mock, n)
+	for i := 0; i < n; i++ {
+		clocks[i] = clock.NewMock()
+		clocks[i].Set(now)
+	}
 	layerDuration := 5 * time.Minute
 	beacon := types.Beacon{1, 1, 1, 1}
-	nodeclock, err := timesync.NewClock(
-		timesync.WithLogger(logtest.New(tb)),
-		timesync.WithClock(wall),
-		timesync.WithGenesisTime(now),
-		timesync.WithLayerDuration(layerDuration),
-		timesync.WithTickInterval(layerDuration),
-	)
-	require.NoError(tb, err)
+
 	syncer := smocks.NewMockSyncStateProvider(ctrl)
 	syncer.EXPECT().IsSynced(gomock.Any()).Return(true).AnyTimes()
 
@@ -71,14 +71,9 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 	pubs := pmocks.NewMockPublishSubsciber(ctrl)
 	pubs.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes()
 	pubs.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).Do(func(ctx context.Context, _ string, msg []byte) error {
-		var eg errgroup.Group
 		for _, hr := range hares {
-			hr := hr
-			eg.Go(func() error {
-				return hr.handler(ctx, "self", msg)
-			})
+			require.NoError(tb, hr.handler(ctx, "self", msg))
 		}
-		require.NoError(tb, eg.Wait())
 		return nil
 	}).AnyTimes()
 	signers := make([]*signing.EdSigner, n)
@@ -123,11 +118,23 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 		require.NoError(tb, err)
 		or := eligibility.New(beaconget, db, vrfverifier, vrfsigner, layersPerEpoch, config.DefaultConfig(), log.NewNop())
 		or.UpdateActiveSet(types.FirstEffectiveGenesis().GetEpoch()+1, ids)
+		nodeclock, err := timesync.NewClock(
+			timesync.WithLogger(logtest.New(tb)),
+			timesync.WithClock(clocks[i]),
+			timesync.WithGenesisTime(now),
+			timesync.WithLayerDuration(layerDuration),
+			timesync.WithTickInterval(layerDuration),
+		)
+		require.NoError(tb, err)
 		hares[i] = New(nodeclock, pubs, db, verifier, signers[i], or, syncer,
-			WithLogger(logger.Zap()), WithWallclock(wall), WithEnableLayer(genesis))
-		hares[i].Start()
+			WithLogger(logger.Zap()), WithWallclock(clocks[i]), WithEnableLayer(genesis))
 	}
-	wall.Set(now.Add(2 * layersPerEpoch * layerDuration))
+	for _, hr := range hares {
+		hr.Start()
+	}
+	for _, wall := range clocks {
+		wall.Set(now.Add(2 * layersPerEpoch * layerDuration))
+	}
 	layer := types.GetEffectiveGenesis() + 1
 	bound := len(vatxs)
 	if bound > 50 {
@@ -154,10 +161,14 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 		}
 	}
 	logger.Debug("setup is finished")
-	wall.Add(cfg.PreroundDelay)
+	for _, wall := range clocks {
+		wall.Add(cfg.PreroundDelay)
+	}
 	for i := 0; i < int(notify)*2; i++ {
 		time.Sleep(pause)
-		wall.Add(cfg.RoundDuration)
+		for _, wall := range clocks {
+			wall.Add(cfg.RoundDuration)
+		}
 	}
 
 	for _, hr := range hares {
@@ -169,8 +180,8 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 			require.FailNow(tb, "no result")
 		}
 	}
+	time.Sleep(pause)
 	for _, hr := range hares {
-		time.Sleep(pause)
 		require.Empty(tb, hr.Running())
 	}
 }
@@ -179,4 +190,11 @@ func TestHare(t *testing.T) {
 	t.Run("one", func(t *testing.T) { testHare(t, 1, 10*time.Millisecond) })
 	t.Run("two", func(t *testing.T) { testHare(t, 2, 10*time.Millisecond) })
 	t.Run("small", func(t *testing.T) { testHare(t, 10, 10*time.Millisecond) })
+	t.Run("mid", func(t *testing.T) {
+		// debug why does it take so long
+		if testing.Short() {
+			t.Skip()
+		}
+		testHare(t, 50, 10*time.Millisecond)
+	})
 }
