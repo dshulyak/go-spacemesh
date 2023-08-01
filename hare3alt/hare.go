@@ -326,7 +326,6 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	if err := h.onOutput(layer, proto.next(vrf != nil), vrf); err != nil {
 		return err
 	}
-	h.log.Debug("ready to accept messages", zap.Uint32("lid", layer.Uint32()))
 	rounds := make(chan *types.HareEligibility, 1)
 	h.eg.Go(func() error {
 		for {
@@ -344,6 +343,7 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 			}
 		}
 	})
+	h.log.Debug("ready to accept messages", zap.Uint32("lid", layer.Uint32()))
 	for {
 		select {
 		case input := <-inputs:
