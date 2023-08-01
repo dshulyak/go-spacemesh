@@ -26,8 +26,6 @@ import (
 	"github.com/spacemeshos/go-spacemesh/timesync"
 )
 
-const protocolName = "/h3"
-
 type Config struct {
 	Enable          bool          `mapstructure:"enable"`
 	EnableAfter     types.LayerID `mapstructure:"enable-layer"`
@@ -36,6 +34,7 @@ type Config struct {
 	IterationsLimit uint8         `mapstructure:"iterations-limit"`
 	PreroundDelay   time.Duration `mapstructure:"preround-delay"`
 	RoundDuration   time.Duration `mapstructure:"round-duration"`
+	ProtocolName    string
 }
 
 func DefaultConfig() Config {
@@ -46,6 +45,7 @@ func DefaultConfig() Config {
 		IterationsLimit: 40,
 		PreroundDelay:   25 * time.Second,
 		RoundDuration:   10 * time.Second,
+		ProtocolName:    "/h/3.0", // can be bumped to 3.1 with oracle upgrade
 	}
 }
 
@@ -198,11 +198,13 @@ func (h *Hare) Coins() <-chan WeakCoinOutput {
 
 func (h *Hare) Start() {
 	h.eg.Go(func() error {
-		h.pubsub.Register(protocolName, h.handler)
+		h.pubsub.Register(h.config.ProtocolName, h.handler)
 		enabled := types.MaxLayer(h.nodeclock.CurrentLayer(), h.config.EnableAfter)
+		h.log.Debug("starting at layer", zap.Uint32("lid", enabled.Uint32()))
 		for next := enabled + 1; ; next++ {
 			select {
 			case <-h.nodeclock.AwaitLayer(next):
+				h.log.Debug("notified", zap.Uint32("lid", next.Uint32()))
 				h.onLayer(next)
 			case <-h.ctx.Done():
 				return nil
@@ -216,6 +218,9 @@ func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 	if err := codec.Decode(buf, msg); err != nil {
 		return fmt.Errorf("%w: decoding error %s", pubsub.ErrValidationReject, err.Error())
 	}
+	if err := msg.Validate(); err != nil {
+		return fmt.Errorf("%w: validation %s", pubsub.ErrValidationReject, err.Error())
+	}
 	h.mu.Lock()
 	instance, registered := h.instances[msg.Layer]
 	h.mu.Unlock()
@@ -225,13 +230,13 @@ func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 	if !h.verifier.Verify(signing.HARE, msg.Sender, msg.ToMetadata().ToBytes(), msg.Signature) {
 		return fmt.Errorf("%w: invalid signature", pubsub.ErrValidationReject)
 	}
-	g := h.oracle.validate(msg)
-	if g == grade0 {
-		return fmt.Errorf("zero grade")
-	}
 	malicious, err := h.db.IsMalicious(msg.Sender)
 	if err != nil {
 		return fmt.Errorf("database error %s", err.Error())
+	}
+	g := h.oracle.validate(msg)
+	if g == grade0 {
+		return fmt.Errorf("zero grade")
 	}
 	resp, err := instance.submit(&input{
 		Message:   msg,
@@ -254,10 +259,16 @@ func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
 
 func (h *Hare) onLayer(layer types.LayerID) {
 	if !h.sync.IsSynced(h.ctx) {
+		h.log.Debug("not synced", zap.Uint32("lid", layer.Uint32()))
 		return
 	}
 	beacon, err := beacons.Get(h.db, layer.GetEpoch())
 	if err != nil || beacon == types.EmptyBeacon {
+		h.log.Debug("no beacon",
+			zap.Uint32("epoch", layer.GetEpoch().Uint32()),
+			zap.Uint32("lid", layer.Uint32()),
+			zap.Error(err),
+		)
 		return
 	}
 	inputs := make(chan *instanceInput)
@@ -268,14 +279,15 @@ func (h *Hare) onLayer(layer types.LayerID) {
 		inputs: inputs,
 	}
 	h.mu.Unlock()
+	h.log.Debug("registered layer", zap.Uint32("lid", layer.Uint32()))
 	h.eg.Go(func() error {
 		if err := h.run(layer, beacon, inputs); err != nil {
-			h.log.Warn("hare failed",
+			h.log.Warn("failed",
 				zap.Uint32("lid", layer.Uint32()),
 				zap.Error(err),
 			)
 		} else {
-			h.log.Debug("hare terminated",
+			h.log.Debug("terminated",
 				zap.Uint32("lid", layer.Uint32()),
 			)
 		}
@@ -350,7 +362,7 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *types.HareEligibil
 		h.eg.Go(func() error {
 			out.message.Sender = h.signer.NodeID()
 			out.message.Signature = h.signer.Sign(signing.HARE, out.message.ToMetadata().ToBytes())
-			if err := h.pubsub.Publish(h.ctx, protocolName, out.message.ToBytes()); err != nil {
+			if err := h.pubsub.Publish(h.ctx, h.config.ProtocolName, out.message.ToBytes()); err != nil {
 				h.log.Error("failed to publish", zap.Inline(out.message))
 			}
 			return nil

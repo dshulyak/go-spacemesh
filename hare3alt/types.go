@@ -1,6 +1,8 @@
 package hare3alt
 
 import (
+	"fmt"
+
 	"github.com/spacemeshos/go-spacemesh/codec"
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/hash"
@@ -36,7 +38,11 @@ type IterRound struct {
 
 // Since returns number of network delays since specified iterround.
 func (ir IterRound) Since(since IterRound) int {
-	return int(ir.Iter*uint8(notify)+uint8(ir.Round)) - int(since.Iter*uint8(notify)+uint8(since.Round))
+	return int(ir.Single() - since.Single())
+}
+
+func (ir IterRound) Single() uint32 {
+	return uint32(ir.Iter*uint8(notify) + uint8(ir.Round))
 }
 
 type Value struct {
@@ -73,7 +79,7 @@ func (m *Message) ToHash() types.Hash32 {
 func (m *Message) ToMetadata() types.HareMetadata {
 	return types.HareMetadata{
 		Layer:   m.Layer,
-		Round:   uint32(m.Round),
+		Round:   m.Single(),
 		MsgHash: m.ToHash(),
 	}
 }
@@ -99,6 +105,13 @@ func (m *Message) ToBytes() []byte {
 		panic(err.Error())
 	}
 	return buf
+}
+
+func (m *Message) Validate() error {
+	if (m.Round == commit || m.Round == notify) && m.Value.Reference == nil {
+		return fmt.Errorf("reference can't be nil in commit or notify rounds")
+	}
+	return nil
 }
 
 func (m *Message) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
