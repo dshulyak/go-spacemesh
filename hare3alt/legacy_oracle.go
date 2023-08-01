@@ -3,7 +3,6 @@ package hare3alt
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/hare/eligibility"
@@ -16,53 +15,52 @@ type oracle interface {
 	Proof(context.Context, types.LayerID, uint32) (types.VrfSignature, error)
 }
 
-type LegacyOracle struct {
+type legacyOracle struct {
 	log    *zap.Logger
 	oracle oracle
 	config Config
 }
 
-type proof struct {
-	vrf           types.VrfSignature
-	eligibilities uint16
-}
-
-func (lg *LegacyOracle) validate(msg *message) error {
+func (lg *legacyOracle) validate(msg *Message) grade {
 	size := int(lg.config.Committee)
-	if msg.round == propose {
+	if msg.Round == propose {
 		size = int(lg.config.Leaders)
 	}
-	r := uint32(msg.iter*notify) + uint32(msg.round)
+	r := uint32(msg.Iter*uint8(notify)) + uint32(msg.Round)
 	valid, err := lg.oracle.Validate(context.Background(),
-		msg.layer, r,
-		size, msg.sender,
-		msg.vrf, msg.eligibilities)
+		msg.Layer, r,
+		size, msg.Sender,
+		msg.Eligibility.Proof, msg.Eligibility.Count)
 	if err != nil {
-		return err
+		lg.log.Warn("failed proof validation", zap.Error(err))
+		return grade0
 	}
 	if !valid {
-		return fmt.Errorf("invalid")
+		return grade0
 	}
-	return nil
+	if msg.Round == propose {
+		return grade3
+	}
+	return grade5
 }
 
-func (lg *LegacyOracle) active(smesher types.NodeID, layer types.LayerID, ir iterround) *proof {
-	r := uint32(ir.iter*notify) + uint32(ir.round)
+func (lg *legacyOracle) active(smesher types.NodeID, layer types.LayerID, ir IterRound) *types.HareEligibility {
+	r := uint32(ir.Iter*uint8(notify)) + uint32(ir.Round)
 	vrf, err := lg.oracle.Proof(context.Background(), layer, r)
 	if err != nil {
 		lg.log.Error("failed to compute vrf", zap.Error(err))
 		return nil
 	}
 	size := int(lg.config.Committee)
-	if ir.round == propose {
+	if ir.Round == propose {
 		size = int(lg.config.Leaders)
 	}
-	elig, err := lg.oracle.CalcEligibility(context.Background(), layer, r, size, smesher, vrf)
+	count, err := lg.oracle.CalcEligibility(context.Background(), layer, r, size, smesher, vrf)
 	if err != nil {
 		if !errors.Is(err, eligibility.ErrNotActive) {
 			lg.log.Error("failed to compute eligibilities", zap.Error(err))
 		}
 		return nil
 	}
-	return &proof{vrf: vrf, eligibilities: elig}
+	return &types.HareEligibility{Proof: vrf, Count: count}
 }

@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/spacemeshos/go-spacemesh/codec"
 	"github.com/spacemeshos/go-spacemesh/common/types"
 	"github.com/spacemeshos/go-spacemesh/datastore"
 	"github.com/spacemeshos/go-spacemesh/p2p"
@@ -47,7 +48,7 @@ type WeakCoinOutput struct {
 }
 
 type instanceInput struct {
-	message *message
+	message *input
 	result  chan *messageResponse
 }
 
@@ -61,7 +62,7 @@ type instanceInputs struct {
 	inputs chan<- *instanceInput
 }
 
-func (inputs *instanceInputs) submit(msg *message) (*messageResponse, error) {
+func (inputs *instanceInputs) submit(msg *input) (*messageResponse, error) {
 	input := &instanceInput{
 		message: msg,
 		result:  make(chan *messageResponse, 1),
@@ -95,7 +96,7 @@ type Hare struct {
 	db         *datastore.CachedDB
 	edVerifier *signing.EdVerifier
 	signer     *signing.EdSigner
-	oracle     *LegacyOracle
+	oracle     *legacyOracle
 	sync       system.SyncStateProvider
 	beacon     system.BeaconGetter
 
@@ -112,28 +113,33 @@ func (h *Hare) Coins() <-chan WeakCoinOutput {
 }
 
 func (h *Hare) handler(ctx context.Context, peer p2p.Peer, buf []byte) error {
-	msg, err := decodeMessage(buf)
-	if err != nil {
-		return err
+	msg := &Message{}
+	if err := codec.Decode(buf, msg); err != nil {
+		return fmt.Errorf("%w: decoding error %s", pubsub.ErrValidationReject, err.Error())
 	}
 	h.mu.Lock()
-	instance, registered := h.instances[msg.layer]
+	instance, registered := h.instances[msg.Layer]
 	h.mu.Unlock()
 	if !registered {
-		return fmt.Errorf("layer %d not registered", msg.layer)
+		return fmt.Errorf("layer %d is not registered", msg.Layer)
 	}
-	if !h.edVerifier.Verify(signing.HARE, msg.sender, msg.signedBytes(), msg.signature) {
+	if !h.edVerifier.Verify(signing.HARE, msg.Sender, msg.ToMetadata().ToBytes(), msg.Signature) {
 		return fmt.Errorf("%w: invalid signature", pubsub.ErrValidationReject)
 	}
-	if err := h.oracle.validate(msg); err != nil {
-		return err
+	g := h.oracle.validate(msg)
+	if g == grade0 {
+		return fmt.Errorf("zero grade")
 	}
-	if malicious, err := h.db.IsMalicious(msg.sender); err != nil {
+	malicious, err := h.db.IsMalicious(msg.Sender)
+	if err != nil {
 		return fmt.Errorf("database error %s", err.Error())
-	} else {
-		msg.malicious = malicious
 	}
-	resp, err := instance.submit(msg)
+	resp, err := instance.submit(&input{
+		Message:   msg,
+		msgHash:   msg.ToHash(),
+		malicious: malicious,
+		grade:     g,
+	})
 	if err != nil {
 		return err
 	}
@@ -201,7 +207,7 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	// oracle may load non-negligible amount of data from disk
 	// we do it before preround starts, so that load can have some slack time
 	// before it needs to be used in validation
-	vrf := h.oracle.active(h.signer.NodeID(), layer, iterround{round: preround})
+	vrf := h.oracle.active(h.signer.NodeID(), layer, IterRound{Round: preround})
 	walltime := h.nodeclock.LayerToTime(layer).Add(h.config.PreroundDelay)
 	select {
 	case <-h.wallclock.After(h.wallclock.Until(walltime)):
@@ -227,7 +233,7 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 			)
 			input.result <- &messageResponse{gossip: gossip, equivocation: equivocation}
 		case <-h.wallclock.After(h.wallclock.Until(walltime)):
-			vrf := h.oracle.active(h.signer.NodeID(), layer, proto.iterround)
+			vrf := h.oracle.active(h.signer.NodeID(), layer, proto.IterRound)
 			out := proto.next(vrf != nil)
 			if err := h.onOutput(layer, out, vrf); err != nil {
 				return err
@@ -235,7 +241,7 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 			if out.terminated {
 				return nil
 			}
-			if proto.iter == h.config.IterationsLimit {
+			if proto.Iter == h.config.IterationsLimit {
 				return fmt.Errorf("hare failed to reach consensus in %d iterations",
 					h.config.IterationsLimit)
 			}
@@ -246,7 +252,7 @@ func (h *Hare) run(layer types.LayerID, beacon types.Beacon, inputs <-chan *inst
 	}
 }
 
-func (h *Hare) onOutput(layer types.LayerID, out output, vrf *proof) error {
+func (h *Hare) onOutput(layer types.LayerID, out output, vrf *types.HareEligibility) error {
 	h.log.Debug("round output",
 		zap.Uint32("lid", layer.Uint32()),
 		zap.Inline(&out),
@@ -256,13 +262,11 @@ func (h *Hare) onOutput(layer types.LayerID, out output, vrf *proof) error {
 		if vrf == nil {
 			panic("inconsistent state")
 		}
-		out.message.eligibilities = vrf.eligibilities
-		out.message.vrf = vrf.vrf
-		// message will be received by the same goroutine
+		out.message.Eligibility = *vrf
 		h.eg.Go(func() error {
-			if err := h.pubsub.Publish(
-				h.ctx, protocolName,
-				encodeWithSignature(out.message, h.signer)); err != nil {
+			out.message.Sender = h.signer.NodeID()
+			out.message.Signature = h.signer.Sign(signing.HARE, out.message.ToMetadata().ToBytes())
+			if err := h.pubsub.Publish(h.ctx, protocolName, out.message.ToBytes()); err != nil {
 				h.log.Error("failed to publish", zap.Inline(out.message))
 			}
 			return nil
