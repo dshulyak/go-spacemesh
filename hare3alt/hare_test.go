@@ -127,9 +127,6 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 	for i := range hares {
 		hares[i].Start()
 	}
-	for _, wall := range clocks {
-		wall.Set(now.Add(2 * layersPerEpoch * layerDuration))
-	}
 	layer := types.GetEffectiveGenesis() + 1
 	bound := len(vatxs)
 	if bound > 50 {
@@ -154,6 +151,9 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 			require.NoError(tb, ballots.Add(hr.db, &proposal.Ballot))
 			require.NoError(tb, proposals.Add(hr.db, proposal))
 		}
+	}
+	for _, wall := range clocks {
+		wall.Add(2*layersPerEpoch*layerDuration + 2*time.Second)
 	}
 	for _, wall := range clocks {
 		wall.Add(cfg.PreroundDelay)
