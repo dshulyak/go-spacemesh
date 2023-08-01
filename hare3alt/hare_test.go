@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"testing"
 	"time"
@@ -40,24 +38,17 @@ func TestMain(m *testing.M) {
 }
 
 func testHare(tb testing.TB, n int, pause time.Duration) {
-	go func() {
-		http.ListenAndServe("localhost:6060", nil)
-	}()
 	tb.Helper()
 	now := time.Now()
 	cfg := DefaultConfig()
-	ctrl := gomock.NewController(tb)
+	layerDuration := 5 * time.Minute
+	beacon := types.Beacon{1, 1, 1, 1}
+
 	clocks := make([]*clock.Mock, n)
 	for i := 0; i < n; i++ {
 		clocks[i] = clock.NewMock()
 		clocks[i].Set(now)
 	}
-	layerDuration := 5 * time.Minute
-	beacon := types.Beacon{1, 1, 1, 1}
-
-	syncer := smocks.NewMockSyncStateProvider(ctrl)
-	syncer.EXPECT().IsSynced(gomock.Any()).Return(true).AnyTimes()
-
 	verifier, err := signing.NewEdVerifier()
 	require.NoError(tb, err)
 	vrfverifier := signing.NewVRFVerifier()
@@ -68,14 +59,6 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 			hr.Stop()
 		}
 	})
-	pubs := pmocks.NewMockPublishSubsciber(ctrl)
-	pubs.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes()
-	pubs.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).Do(func(ctx context.Context, _ string, msg []byte) error {
-		for _, hr := range hares {
-			require.NoError(tb, hr.handler(ctx, "self", msg))
-		}
-		return nil
-	}).AnyTimes()
 	signers := make([]*signing.EdSigner, n)
 	for i := range signers {
 		signer, err := signing.NewEdSigner(signing.WithKeyFromRand(rng))
@@ -102,9 +85,13 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 		vatxs[i] = verified
 		ids[i] = id
 	}
+
 	logger := logtest.New(tb)
 	for i := 0; i < n; i++ {
-		logger := logger.Named(fmt.Sprintf("hare=%d", i))
+		logger = logger.Named(fmt.Sprintf("hare=%d", i))
+		ctrl := gomock.NewController(tb)
+		syncer := smocks.NewMockSyncStateProvider(ctrl)
+		syncer.EXPECT().IsSynced(gomock.Any()).Return(true).AnyTimes()
 		db := datastore.NewCachedDB(sql.InMemory(), log.NewNop())
 		require.NoError(tb, beacons.Add(db, types.GetEffectiveGenesis().GetEpoch()+1, beacon))
 		beaconget := smocks.NewMockBeaconGetter(ctrl)
@@ -119,18 +106,26 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 		or := eligibility.New(beaconget, db, vrfverifier, vrfsigner, layersPerEpoch, config.DefaultConfig(), log.NewNop())
 		or.UpdateActiveSet(types.FirstEffectiveGenesis().GetEpoch()+1, ids)
 		nodeclock, err := timesync.NewClock(
-			timesync.WithLogger(logtest.New(tb)),
+			timesync.WithLogger(log.NewNop()),
 			timesync.WithClock(clocks[i]),
 			timesync.WithGenesisTime(now),
 			timesync.WithLayerDuration(layerDuration),
 			timesync.WithTickInterval(layerDuration),
 		)
 		require.NoError(tb, err)
+		pubs := pmocks.NewMockPublishSubsciber(ctrl)
+		pubs.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes()
+		pubs.EXPECT().Publish(gomock.Any(), gomock.Any(), gomock.Any()).Do(func(ctx context.Context, _ string, msg []byte) error {
+			for _, hr := range hares {
+				require.NoError(tb, hr.handler(ctx, "self", msg))
+			}
+			return nil
+		}).AnyTimes()
 		hares[i] = New(nodeclock, pubs, db, verifier, signers[i], or, syncer,
 			WithLogger(logger.Zap()), WithWallclock(clocks[i]), WithEnableLayer(genesis))
 	}
-	for _, hr := range hares {
-		hr.Start()
+	for i := range hares {
+		hares[i].Start()
 	}
 	for _, wall := range clocks {
 		wall.Set(now.Add(2 * layersPerEpoch * layerDuration))
@@ -160,11 +155,11 @@ func testHare(tb testing.TB, n int, pause time.Duration) {
 			require.NoError(tb, proposals.Add(hr.db, proposal))
 		}
 	}
-	logger.Debug("setup is finished")
 	for _, wall := range clocks {
 		wall.Add(cfg.PreroundDelay)
 	}
-	for i := 0; i < int(notify)*2; i++ {
+	for i := 0; i < 2*int(notify); i++ {
+		// TODO(dshulyak) this needs to be improved
 		time.Sleep(pause)
 		for _, wall := range clocks {
 			wall.Add(cfg.RoundDuration)
