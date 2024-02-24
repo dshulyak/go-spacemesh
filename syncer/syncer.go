@@ -16,6 +16,7 @@ import (
 	"github.com/spacemeshos/go-spacemesh/log"
 	"github.com/spacemeshos/go-spacemesh/mesh"
 	"github.com/spacemeshos/go-spacemesh/p2p"
+	"github.com/spacemeshos/go-spacemesh/syncer/atxsync"
 	"github.com/spacemeshos/go-spacemesh/system"
 )
 
@@ -102,6 +103,12 @@ func withDataFetcher(d fetchLogic) Option {
 	}
 }
 
+func WithAtxSyncer(syncer *atxsync.Syncer) Option {
+	return func(s *Syncer) {
+		s.atxsyncer = syncer
+	}
+}
+
 func withForkFinder(f forkFinder) Option {
 	return func(s *Syncer) {
 		s.forkFinder = f
@@ -114,6 +121,7 @@ type Syncer struct {
 
 	cfg          Config
 	cdb          *datastore.CachedDB
+	atxsyncer    *atxsync.Syncer
 	ticker       layerTicker
 	beacon       system.BeaconGetter
 	mesh         *mesh.Mesh
@@ -443,7 +451,7 @@ func (s *Syncer) syncAtx(ctx context.Context) error {
 		}
 	}
 	if s.cfg.DisableAtxReconciliation {
-		s.logger.Debug("atx sync disabled")
+		s.logger.Debug("atx sync reconciliation is disabled")
 		return nil
 	}
 	// steady state atx syncing
@@ -563,8 +571,14 @@ func (s *Syncer) syncLayer(ctx context.Context, layerID types.LayerID, peers ...
 
 // fetching ATXs published the specified epoch.
 func (s *Syncer) fetchATXsForEpoch(ctx context.Context, epoch types.EpochID) error {
-	if err := s.dataFetcher.GetEpochATXs(ctx, epoch); err != nil {
-		return err
+	if s.atxsyncer != nil {
+		if err := s.atxsyncer.Download(ctx, epoch); err != nil {
+			return err
+		}
+	} else {
+		if err := s.dataFetcher.GetEpochATXs(ctx, epoch); err != nil {
+			return err
+		}
 	}
 	s.setLastAtxEpoch(epoch)
 	atxEpoch.Set(float64(epoch))
