@@ -144,6 +144,7 @@ func (s *Syncer) downloadAtxs(
 		progressTimestamp    time.Time
 		downloaded           = map[types.ATXID]bool{}
 		previouslyDownloaded = 0
+		start                = time.Now()
 	)
 
 	for {
@@ -192,6 +193,9 @@ func (s *Syncer) downloadAtxs(
 				break
 			}
 		}
+		if len(downloaded) == previouslyDownloaded {
+			lackOfProgress++
+		}
 		// report progress every 10%
 		if progress := float64(len(downloaded) - previouslyDownloaded); progress/float64(len(state)) > 0.1 {
 			rate := float64(0)
@@ -200,6 +204,7 @@ func (s *Syncer) downloadAtxs(
 			}
 			previouslyDownloaded = len(downloaded)
 			progressTimestamp = time.Now()
+			lackOfProgress = 0
 			s.logger.Info(
 				"atx sync progress",
 				epoch.Field().Zap(),
@@ -207,9 +212,6 @@ func (s *Syncer) downloadAtxs(
 				zap.Int("total", len(state)),
 				zap.Float64("rate per sec", rate),
 			)
-		}
-		if len(downloaded) == previouslyDownloaded {
-			lackOfProgress++
 		}
 		if lackOfProgress == 10 {
 			lackOfProgress = 0
@@ -226,6 +228,7 @@ func (s *Syncer) downloadAtxs(
 				zap.Int("downloaded", len(downloaded)),
 				zap.Int("total", len(state)),
 				zap.Int("unavailable", len(state)-len(downloaded)),
+				zap.Duration("duration", time.Since(start)),
 			)
 			return nil
 		}
