@@ -12,6 +12,6 @@ import (
 func TestSyncer(t *testing.T) {
 	localdb := localsql.InMemory()
 	db := sql.InMemory()
-	syncer := New(nil, db, localdb)
+	syncer := New(nil, nil, db, localdb)
 	require.NoError(t, syncer.Download(context.Background(), 1))
 }

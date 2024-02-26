@@ -844,7 +844,9 @@ func (app *App) initServices(ctx context.Context) error {
 		app.certifier,
 		syncer.WithConfig(syncerConf),
 		syncer.WithLogger(app.syncLogger),
-		syncer.WithAtxSyncer(atxsync.New(fetcher, app.db, app.localDB, atxsync.WithLogger(app.syncLogger.Zap()))),
+		syncer.WithAtxSyncer(
+			atxsync.New(fetcher, app.clock, app.db, app.localDB, atxsync.WithLogger(app.syncLogger.Zap())),
+		),
 	)
 	// TODO(dshulyak) this needs to be improved, but dependency graph is a bit complicated
 	beaconProtocol.SetSyncState(newSyncer)
