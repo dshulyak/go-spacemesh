@@ -84,6 +84,7 @@ func New(fetcher fetcher, clock clock, db sql.Executor, localdb *localsql.Databa
 		logger:  zap.NewNop(),
 		cfg:     DefaultConfig(),
 		fetcher: fetcher,
+		clock:   clock,
 		db:      db,
 		localdb: localdb,
 	}
